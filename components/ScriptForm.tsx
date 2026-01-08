@@ -4,15 +4,13 @@ import { TTSConfig, TTSProvider, SavedScript } from '../types';
 import { VOICES, TONES, STYLES, LANGUAGES, PROVIDERS, ELEVENLABS_MODELS } from '../constants';
 import { generateSpeechGemini } from '../services/geminiService';
 import { generateSpeechElevenLabs } from '../services/elevenLabsService';
-import { Mic2, Sparkles, Edit3, ChevronRight, Sliders, MessageSquare, Upload, X, FileAudio, Info, Mic, Globe, Activity, Fingerprint, Play, Pause, Loader2, Zap, HelpCircle } from 'lucide-react';
+import { Sparkles, Edit3, ChevronRight, Sliders, MessageSquare, Activity, Fingerprint, Play, Pause, Loader2, Zap, HelpCircle, Globe, Info } from 'lucide-react';
 
 interface ScriptFormProps {
   onGenerateAudio: (config: TTSConfig) => void;
   isGenerating: boolean;
   loadedScript?: SavedScript | null; // Prop to receive script from library
 }
-
-type Mode = 'preset' | 'clone';
 
 // Helper Component for Labels with Tooltips
 const TooltipLabel = ({ 
@@ -51,7 +49,6 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
 }) => {
   const [provider, setProvider] = useState<TTSProvider>('gemini');
   const [language, setLanguage] = useState(LANGUAGES[0].code); // Default Vietnamese
-  const [mode, setMode] = useState<Mode>('preset');
   const [text, setText] = useState("");
   const [voice, setVoice] = useState(""); 
   const [customVoiceId, setCustomVoiceId] = useState("");
@@ -60,11 +57,6 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
   const [instructions, setInstructions] = useState("");
   const [elevenLabsModel, setElevenLabsModel] = useState(ELEVENLABS_MODELS[0].id);
   
-  // Clone State
-  const [audioFile, setAudioFile] = useState<File | null>(null);
-  const [audioBase64, setAudioBase64] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   // Preview Audio State
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isPlayingPreview, setIsPlayingPreview] = useState(false);
@@ -92,8 +84,6 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
         setVoice('custom_input');
         setCustomVoiceId(loadedScript.voice);
       }
-      
-      setMode('preset');
     }
   }, [loadedScript]);
 
@@ -223,42 +213,10 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
-        alert("Tệp quá lớn. Vui lòng tải lên mẫu dưới 5MB.");
-        return;
-      }
-      
-      setAudioFile(file);
-      
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const result = event.target?.result as string;
-        const base64 = result.split(',')[1];
-        setAudioBase64(base64);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const clearFile = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setAudioFile(null);
-    setAudioBase64(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     stopPreview();
     if (!text.trim()) return;
-
-    if (mode === 'clone' && !audioBase64) {
-      alert("Vui lòng tải lên mẫu giọng nói để sao chép.");
-      return;
-    }
 
     let finalVoice = voice;
     if (provider === 'elevenlabs' && voice === 'custom_input') {
@@ -267,8 +225,6 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
             return;
         }
         finalVoice = customVoiceId.trim();
-    } else if (mode === 'clone') {
-        finalVoice = 'Giọng sao chép';
     }
 
     onGenerateAudio({
@@ -279,10 +235,7 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
       tone,
       style,
       instructions,
-      isClone: mode === 'clone',
-      audioSample: audioBase64 || undefined,
-      audioMimeType: audioFile?.type,
-      elevenLabsModel // Pass the selected model ID
+      elevenLabsModel
     });
   };
 
@@ -311,7 +264,6 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
                  type="button"
                  onClick={() => {
                    setProvider(p.id as TTSProvider);
-                   if (p.id === 'elevenlabs') setMode('preset');
                  }}
                  className={`flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
                    provider === p.id 
@@ -375,45 +327,8 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
            </div>
         </div>
 
-        {/* Mode Toggle (Only for Gemini currently) */}
-        {provider === 'gemini' && (
-          <div>
-            <TooltipLabel 
-               label="Chế độ tạo giọng"
-               tooltip="'Giọng có sẵn': Sử dụng các giọng mẫu do Google cung cấp. 'Clone Giọng': Tải lên file âm thanh (10-30s) để AI phân tích và bắt chước giọng nói đó."
-            />
-            <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700">
-              <button
-                type="button"
-                onClick={() => setMode('preset')}
-                className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
-                  mode === 'preset' 
-                    ? 'bg-slate-700 text-white shadow-sm ring-1 ring-slate-600' 
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Mic className="w-4 h-4" />
-                Giọng có sẵn
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode('clone')}
-                className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
-                  mode === 'clone' 
-                    ? 'bg-slate-700 text-white shadow-sm ring-1 ring-slate-600' 
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Mic2 className="w-4 h-4" />
-                Clone Giọng
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Voice Selection or Upload */}
+        {/* Voice Selection */}
         <div className="space-y-4">
-          {mode === 'preset' ? (
             <div className="space-y-2 animate-fade-in">
               <TooltipLabel 
                  label="Chọn Giọng đọc"
@@ -483,69 +398,6 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
                 </div>
               )}
             </div>
-          ) : (
-            <div className="space-y-3 animate-fade-in">
-               <div className="bg-indigo-900/20 border border-indigo-500/20 p-3 rounded-lg flex gap-3 text-xs text-indigo-200/80">
-                  <Info className="w-4 h-4 shrink-0 text-indigo-400 mt-0.5" />
-                  <p>
-                    <strong>Gemini Clone (Gemini 3 Pro Analysis):</strong> Tải lên 10-30s giọng mẫu. AI sẽ phân tích timber và style.
-                  </p>
-               </div>
-
-              <TooltipLabel 
-                 label="Tải lên giọng tham khảo"
-                 tooltip="Tải lên tệp âm thanh (WAV/MP3) chứa giọng nói bạn muốn sao chép. Tốt nhất là giọng nói rõ ràng, ít tiếng ồn nền, độ dài từ 10-30 giây."
-              />
-              
-              <div 
-                onClick={() => !audioFile && fileInputRef.current?.click()}
-                className={`w-full border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center text-center transition-all group
-                   ${audioFile 
-                      ? 'border-brand-500/50 bg-brand-500/5' 
-                      : 'border-slate-600 hover:border-brand-500 hover:bg-slate-900/50 cursor-pointer'
-                   }
-                `}
-              >
-                 <input 
-                    ref={fileInputRef}
-                    type="file" 
-                    accept="audio/wav, audio/mp3, audio/mpeg, audio/ogg" 
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-
-                  {!audioFile ? (
-                    <>
-                      <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-3 group-hover:bg-brand-500/20 group-hover:text-brand-400 transition-colors">
-                        <Upload className="w-6 h-6 text-slate-400 group-hover:text-brand-400" />
-                      </div>
-                      <p className="text-sm text-slate-300 font-medium">Nhấn để tải lên mẫu giọng nói</p>
-                      <p className="text-xs text-slate-500 mt-1">WAV hoặc MP3 (Tối đa 5MB)</p>
-                    </>
-                  ) : (
-                    <div className="w-full flex items-center justify-between gap-4">
-                       <div className="flex items-center gap-3 overflow-hidden">
-                          <div className="w-10 h-10 bg-brand-500/20 rounded-lg flex items-center justify-center shrink-0">
-                            <FileAudio className="w-5 h-5 text-brand-400" />
-                          </div>
-                          <div className="min-w-0 text-left">
-                            <p className="text-sm font-medium text-slate-200 truncate max-w-[180px]">{audioFile.name}</p>
-                            <p className="text-xs text-slate-500">{(audioFile.size / 1024 / 1024).toFixed(2)} MB</p>
-                          </div>
-                       </div>
-                       <button 
-                        type="button"
-                        onClick={clearFile}
-                        className="p-2 hover:bg-red-500/10 rounded-lg text-slate-400 hover:text-red-400 transition-colors"
-                        title="Xóa tệp"
-                      >
-                        <X className="w-5 h-5" />
-                       </button>
-                    </div>
-                  )}
-              </div>
-            </div>
-          )}
 
           {/* Tone & Style - Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -598,7 +450,7 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
               type="text"
               value={instructions}
               onChange={(e) => setInstructions(e.target.value)}
-              placeholder={mode === 'clone' ? "vd: Bắt chước giọng điệu chính xác..." : "vd: Ngừng 2 giây sau mỗi câu..."}
+              placeholder={"vd: Ngừng 2 giây sau mỗi câu..."}
               className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all text-sm"
             />
         </div>
@@ -622,11 +474,11 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
 
         <button
           type="submit"
-          disabled={isGenerating || !text.trim() || (mode === 'clone' && !audioBase64 && provider === 'gemini')}
+          disabled={isGenerating || !text.trim()}
           className={`
             w-full py-4 rounded-xl font-bold text-white shadow-lg transition-all
             flex items-center justify-center gap-2 mt-auto
-            ${isGenerating || !text.trim() || (mode === 'clone' && !audioBase64 && provider === 'gemini')
+            ${isGenerating || !text.trim()
               ? 'bg-slate-700 cursor-not-allowed opacity-50' 
               : 'bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 hover:shadow-brand-500/25'}
           `}
@@ -639,7 +491,7 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
           ) : (
             <>
               {provider === 'gemini' ? <Sparkles className="w-5 h-5" /> : <Activity className="w-5 h-5" />}
-              <span>{mode === 'clone' ? 'Sao chép & Tạo' : `Tạo bằng ${provider === 'gemini' ? 'Gemini' : 'ElevenLabs'}`}</span>
+              <span>{`Tạo bằng ${provider === 'gemini' ? 'Gemini' : 'ElevenLabs'}`}</span>
             </>
           )}
         </button>

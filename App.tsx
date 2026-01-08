@@ -201,16 +201,16 @@ function App() {
                            <p className="text-sm text-slate-400 leading-relaxed">Hỗ trợ nhập nhiều API Key cùng lúc. Hệ thống tự động luân phiên (Round-Robin) để tránh giới hạn request (Quota Limit).</p>
                         </div>
                         <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                           <div className="flex items-center gap-2 mb-2 text-brand-400 font-bold"><Sparkles className="w-4 h-4"/> Gemini 2.5 & 3 Pro</div>
-                           <p className="text-sm text-slate-400 leading-relaxed">Sử dụng Gemini 2.5 Flash cho tốc độ TTS cực nhanh và Gemini 3 Pro Preview để phân tích giọng nói khi Clone.</p>
+                           <div className="flex items-center gap-2 mb-2 text-brand-400 font-bold"><Sparkles className="w-4 h-4"/> Gemini 2.5 Flash</div>
+                           <p className="text-sm text-slate-400 leading-relaxed">Sử dụng Gemini 2.5 Flash cho tốc độ TTS cực nhanh, độ trễ thấp và giọng đọc tự nhiên.</p>
                         </div>
                         <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
                            <div className="flex items-center gap-2 mb-2 text-emerald-400 font-bold"><Volume2 className="w-4 h-4"/> ElevenLabs Integration</div>
                            <p className="text-sm text-slate-400 leading-relaxed">Tích hợp ElevenLabs Multilingual v2 cho chất lượng giọng đọc tự nhiên nhất thế giới.</p>
                         </div>
                         <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                           <div className="flex items-center gap-2 mb-2 text-rose-400 font-bold"><Mic className="w-4 h-4"/> Voice Cloning</div>
-                           <p className="text-sm text-slate-400 leading-relaxed">Chỉ cần upload 1 file âm thanh (10-30s), AI sẽ phân tích Timber & Style để tái tạo giọng nói tương tự.</p>
+                           <div className="flex items-center gap-2 mb-2 text-sky-400 font-bold"><Mic className="w-4 h-4"/> Xử lý văn bản dài</div>
+                           <p className="text-sm text-slate-400 leading-relaxed">Tự động chia nhỏ văn bản thông minh theo chương/hồi để tối ưu hóa quá trình tạo giọng nói.</p>
                         </div>
                     </div>
                  </section>
@@ -221,7 +221,7 @@ function App() {
                     <ol className="space-y-3 text-sm text-slate-300 list-decimal list-inside bg-slate-950 p-6 rounded-xl border border-slate-800">
                         <li>Vào mục <strong>Cấu hình API</strong> để nhập Key (Gemini hoặc ElevenLabs).</li>
                         <li>Chọn <strong>Nhà cung cấp</strong> (Gemini/ElevenLabs) và <strong>Ngôn ngữ</strong>.</li>
-                        <li>Chọn <strong>Giọng đọc</strong> có sẵn hoặc upload file để <strong>Clone giọng</strong>.</li>
+                        <li>Chọn <strong>Giọng đọc</strong> từ danh sách có sẵn.</li>
                         <li>Nhập văn bản, tùy chỉnh <strong>Tông giọng (Tone)</strong> và <strong>Phong cách (Style)</strong>.</li>
                         <li>Nhấn <strong>Tạo</strong> và chờ kết quả. Kịch bản sẽ tự động lưu vào <strong>Thư viện</strong>.</li>
                     </ol>

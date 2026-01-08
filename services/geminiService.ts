@@ -161,74 +161,19 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
   const textChunks = splitTextIntoChunks(config.text);
   const audioParts: Uint8Array[] = [];
 
-  let closestVoice = "Puck";
-  let styleDescription = "neutral";
-
-  // --- Voice Cloning Analysis (Once) ---
-  if (config.isClone && config.audioSample) {
-    try {
-      const analysisModel = "gemini-3-pro-preview"; 
-      const rawVoicesList = ["Aoede", "Charon", "Fenrir", "Kore", "Puck", "Zephyr"];
-      
-      const analysisPrompt = `
-        Analyze the audio sample.
-        1. Select the closest matching voice from this list based on gender and timber: ${rawVoicesList.join(', ')}.
-        2. Describe the speaking style (e.g., speed, pitch, emotion) in 5 words or less.
-      `;
-
-      const analysisResponse = await ai.models.generateContent({
-        model: analysisModel,
-        contents: {
-          parts: [
-            { inlineData: { mimeType: config.audioMimeType || 'audio/wav', data: config.audioSample } },
-            { text: analysisPrompt }
-          ]
-        },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              closestVoice: { type: Type.STRING, enum: rawVoicesList },
-              styleDescription: { type: Type.STRING }
-            },
-            required: ["closestVoice", "styleDescription"]
-          }
-        }
-      });
-
-      const jsonText = analysisResponse.text;
-      if (jsonText) {
-          try {
-            const data = JSON.parse(jsonText);
-            closestVoice = data.closestVoice;
-            styleDescription = data.styleDescription;
-          } catch (e) {
-            console.warn("Không thể phân tích JSON, sử dụng mặc định.");
-          }
-      }
-    } catch (error: any) {
-       console.warn("Lỗi phân tích clone, dùng mặc định.", error);
-    }
-  }
-
   // --- TTS Generation Loop ---
   const ttsModel = "gemini-2.5-flash-preview-tts";
   const instructions: string[] = [];
   instructions.push(`Language: ${langName}`);
 
-  if (config.isClone) {
-     if (styleDescription) instructions.push(styleDescription);
-  } else {
-     // Standard params
-     if (config.tone && config.tone !== 'Tiêu chuẩn') instructions.push(`${config.tone} tone`);
-     if (config.style && config.style !== 'Tiêu chuẩn') instructions.push(`${config.style} style`);
-  }
+  // Standard params
+  if (config.tone && config.tone !== 'Tiêu chuẩn') instructions.push(`${config.tone} tone`);
+  if (config.style && config.style !== 'Tiêu chuẩn') instructions.push(`${config.style} style`);
   
   if (config.instructions) instructions.push(config.instructions.trim());
 
-  // Use rawVoiceName for standard, analyzed closestVoice for clone
-  const targetVoice = config.isClone ? closestVoice : rawVoiceName;
+  // Use rawVoiceName directly
+  const targetVoice = rawVoiceName;
 
   for (let i = 0; i < textChunks.length; i++) {
       const chunk = textChunks[i];
