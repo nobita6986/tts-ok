@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Modality, Type } from "@google/genai";
-import { TTSConfig } from "../types";
+import { TTSConfig, AudioSegment } from "../types";
 import { LANGUAGES } from "../constants";
 
 // --- KEY MANAGEMENT LOGIC ---
@@ -12,90 +12,161 @@ export const getStoredApiKeys = (): string[] => {
   const stored = localStorage.getItem(GEMINI_STORAGE_KEY);
   if (!stored) return [];
   try {
-    // Support legacy single string format or new JSON array format
     const parsed = JSON.parse(stored);
     if (Array.isArray(parsed)) return parsed;
-    return [stored]; // Handle legacy plain string (though JSON.parse might fail if simple string, handled in catch)
+    return [stored];
   } catch (e) {
-    // If it's a plain string (legacy), return as single item array
     return [stored];
   }
 };
 
 export const setStoredApiKeys = (keys: string[]) => {
-  // Filter empty strings
   const validKeys = keys.map(k => k.trim()).filter(k => k.length > 0);
   localStorage.setItem(GEMINI_STORAGE_KEY, JSON.stringify(validKeys));
 };
 
 export const getActiveApiKey = (): string | null => {
   const keys = getStoredApiKeys();
-  
-  // Also consider env key if no user keys, or mix it? 
-  // Priority: User Keys > Env Key.
   if (keys.length === 0) {
     return process.env.API_KEY || null;
   }
 
-  // Round-Robin Logic
   let currentIndex = parseInt(localStorage.getItem(GEMINI_INDEX_KEY) || '0', 10);
   if (isNaN(currentIndex) || currentIndex >= keys.length) {
     currentIndex = 0;
   }
 
   const selectedKey = keys[currentIndex];
-
-  // Increment and save index for next time
   const nextIndex = (currentIndex + 1) % keys.length;
   localStorage.setItem(GEMINI_INDEX_KEY, nextIndex.toString());
 
   return selectedKey;
 };
 
+// --- UTILS: Text Splitting ---
+
+// Updated Limit: ~4000 Vietnamese words.
+// Avg Vietnamese word length + space is approx 5 chars.
+// 4000 words * 5 chars = 20,000 characters.
+// This is well within Gemini's 8192 token limit (which is roughly 30k+ chars for English, slightly less for complex scripts).
+const DEFAULT_CHUNK_LENGTH = 20000; 
+
+export const splitTextIntoChunks = (text: string, maxLength: number = DEFAULT_CHUNK_LENGTH): string[] => {
+  if (!text) return [];
+  if (text.length <= maxLength) return [text];
+
+  const chunks: string[] = [];
+  
+  // Normalize newlines to avoid platform specific issues
+  const normalizedText = text.replace(/\r\n/g, '\n');
+  
+  // Split by double newlines to get paragraphs (Preserve paragraph structure)
+  const paragraphs = normalizedText.split(/\n\s*\n/);
+  
+  let currentChunk = "";
+
+  // Regex to detect Chapter/Part headers to force a logical split
+  // Matches: "Chương 1", "Phần II", "Chapter 5", "Part One", "Hồi 3" at start of paragraph
+  const chapterRegex = /^(Chương|Phần|Hồi|Chapter|Part)\s+(\d+|[IVX]+|One|Two|Three)/i;
+
+  for (let i = 0; i < paragraphs.length; i++) {
+    let para = paragraphs[i].trim();
+    if (!para) continue;
+
+    // Logic 1: Priority Split by Chapter/Section
+    // If we hit a new chapter header and we have accumulated audio, push current buffer now
+    // to keep the new chapter start fresh at the beginning of a file.
+    if (currentChunk.length > 0 && chapterRegex.test(para)) {
+        chunks.push(currentChunk);
+        currentChunk = "";
+    }
+
+    // Logic 2: Accumulate Paragraphs
+    // Check if adding this paragraph exceeds the limit
+    // +2 accounts for the double newline we might add
+    if (currentChunk.length + para.length + 2 <= maxLength) {
+        currentChunk += (currentChunk ? "\n\n" : "") + para;
+    } else {
+        // Adding this paragraph would exceed limit. 
+        
+        // 1. Push the current chunk if it exists.
+        if (currentChunk) {
+            chunks.push(currentChunk);
+            currentChunk = "";
+        }
+
+        // 2. Handle the current paragraph
+        if (para.length <= maxLength) {
+            // If paragraph fits in a new chunk by itself, set it
+            currentChunk = para;
+        } else {
+            // Logic 3: Split Massive Paragraphs (Sentence Level)
+            // Paragraph is larger than maxLength. We must split it by sentences.
+            
+            // Regex to match sentences: ends with . ! ? followed by space or end of string.
+            const sentences = para.match(/[^.!?]+[.!?]+[\])'"]*|.+/g) || [para];
+            
+            for (let sentence of sentences) {
+                sentence = sentence.trim();
+                if (!sentence) continue;
+
+                if (currentChunk.length + sentence.length + 1 <= maxLength) {
+                    currentChunk += (currentChunk ? " " : "") + sentence;
+                } else {
+                    if (currentChunk) chunks.push(currentChunk);
+                    
+                    // Logic 4: Hard Split (Word Level fallback)
+                    // If a single sentence is still larger than limit (very rare)
+                    if (sentence.length > maxLength) {
+                        let temp = sentence;
+                        while (temp.length > 0) {
+                            let cutLimit = Math.min(temp.length, maxLength);
+                            // Try to cut at a space near the limit
+                            let cutIndex = temp.lastIndexOf(' ', cutLimit);
+                            
+                            // If no space found in the last 20% of the chunk, hard cut
+                            if (cutIndex === -1 || cutIndex < cutLimit * 0.8) {
+                                cutIndex = cutLimit; 
+                            }
+
+                            chunks.push(temp.slice(0, cutIndex));
+                            temp = temp.slice(cutIndex).trim();
+                        }
+                        currentChunk = ""; 
+                    } else {
+                        currentChunk = sentence;
+                    }
+                }
+            }
+        }
+    }
+  }
+  
+  if (currentChunk) chunks.push(currentChunk);
+  
+  return chunks;
+};
+
 // --- SERVICE LOGIC ---
 
-const getClient = () => {
-  const apiKey = getActiveApiKey();
-  if (!apiKey) {
-    throw new Error("Gemini API Key chưa được cấu hình.");
-  }
-  return new GoogleGenAI({ apiKey });
-};
-
-// Helper to generate image prompt (Common for both services logic)
-// UPDATED: Use Gemini 3 Flash Preview for faster text generation
-export const generateImagePromptCommon = async (text: string, apiKey: string): Promise<string> => {
-    try {
-      const ai = new GoogleGenAI({ apiKey });
-      const promptModel = "gemini-3-flash-preview"; 
-      const promptResponse = await ai.models.generateContent({
-        model: promptModel,
-        contents: `Create a highly detailed, artistic, and photorealistic image generation prompt (in English) based on the following text. The prompt should describe the scene, mood, lighting, and subjects suitable for a YouTube thumbnail or cinematic background matching the content: "${text}". Only return the prompt text.`,
-      });
-      return promptResponse.text || "Không thể tạo prompt ảnh.";
-    } catch (e) {
-      console.warn("Lỗi tạo prompt ảnh:", e);
-      return "Không thể tạo prompt ảnh.";
-    }
-};
-
-export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUrl: string, imagePrompt: string }> => {
+export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUrl: string }> => {
   const apiKey = getActiveApiKey();
   if (!apiKey) throw new Error("Gemini API Key chưa được cấu hình.");
   
   const ai = new GoogleGenAI({ apiKey });
-  
-  // Clean the voice ID for Gemini (remove _US, _JP suffixes)
   const rawVoiceName = config.voice.split('_')[0];
-
-  // Logic Prompt ngôn ngữ
   const langName = LANGUAGES.find(l => l.code === config.language)?.name || "Tiếng Việt";
   
-  // --- Voice Cloning Mode (Gemini) ---
+  // Use default limit (20000 chars ~ 4000 words) for Gemini
+  const textChunks = splitTextIntoChunks(config.text);
+  const audioParts: Uint8Array[] = [];
+
+  let closestVoice = "Puck";
+  let styleDescription = "neutral";
+
+  // --- Voice Cloning Analysis (Once) ---
   if (config.isClone && config.audioSample) {
     try {
-      // Step 1: Analyze Voice
-      // UPDATED: Use Gemini 3 Pro Preview for complex analysis tasks
       const analysisModel = "gemini-3-pro-preview"; 
       const rawVoicesList = ["Aoede", "Charon", "Fenrir", "Kore", "Puck", "Zephyr"];
       
@@ -109,12 +180,7 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
         model: analysisModel,
         contents: {
           parts: [
-            {
-              inlineData: {
-                mimeType: config.audioMimeType || 'audio/wav',
-                data: config.audioSample
-              }
-            },
+            { inlineData: { mimeType: config.audioMimeType || 'audio/wav', data: config.audioSample } },
             { text: analysisPrompt }
           ]
         },
@@ -131,9 +197,6 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
         }
       });
 
-      let closestVoice = "Puck";
-      let styleDescription = "neutral";
-      
       const jsonText = analysisResponse.text;
       if (jsonText) {
           try {
@@ -144,112 +207,107 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
             console.warn("Không thể phân tích JSON, sử dụng mặc định.");
           }
       }
-
-      // Step 2: Synthesize
-      // NOTE: Gemini 3 TTS is not widely available in public docs as a separate model ID yet, 
-      // sticking to the stable preview TTS model for actual audio generation.
-      const ttsModel = "gemini-2.5-flash-preview-tts";
-      
-      const userInstructions: string[] = [];
-      userInstructions.push(`Language: ${langName}`); // Enforce language
-      if (styleDescription) userInstructions.push(styleDescription);
-      if (config.tone && config.tone !== 'Tiêu chuẩn') userInstructions.push(config.tone);
-      if (config.style && config.style !== 'Tiêu chuẩn') userInstructions.push(config.style);
-      if (config.instructions) userInstructions.push(config.instructions);
-      
-      const textPrompt = `Say in ${langName} with ${userInstructions.join(', ')}: "${config.text}"`;
-
-      // Parallel execution: If preview, skip image prompt
-      const ttsPromise = ai.models.generateContent({
-          model: ttsModel,
-          contents: [{ parts: [{ text: textPrompt }] }],
-          config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: closestVoice as any },
-              },
-            },
-          },
-      });
-
-      const imagePromptPromise = config.isPreview 
-        ? Promise.resolve("Preview mode - No image") 
-        : generateImagePromptCommon(config.text, apiKey);
-
-      const [ttsResponse, imagePrompt] = await Promise.all([ttsPromise, imagePromptPromise]);
-
-      const base64Audio = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!base64Audio) throw new Error("Không có âm thanh trả về.");
-      
-      return {
-        audioUrl: base64ToWavBlobURL(base64Audio),
-        imagePrompt
-      };
-
     } catch (error: any) {
-      console.error("Lỗi clone Gemini:", error);
-      throw new Error(error.message || "Lỗi khi clone giọng.");
+       console.warn("Lỗi phân tích clone, dùng mặc định.", error);
     }
   }
 
-  // --- Standard Mode (Gemini) ---
-  const model = "gemini-2.5-flash-preview-tts";
-
+  // --- TTS Generation Loop ---
+  const ttsModel = "gemini-2.5-flash-preview-tts";
   const instructions: string[] = [];
   instructions.push(`Language: ${langName}`);
-  if (config.tone && config.tone !== 'Tiêu chuẩn') instructions.push(`${config.tone} tone`);
-  if (config.style && config.style !== 'Tiêu chuẩn') instructions.push(`${config.style} style`);
+
+  if (config.isClone) {
+     if (styleDescription) instructions.push(styleDescription);
+  } else {
+     // Standard params
+     if (config.tone && config.tone !== 'Tiêu chuẩn') instructions.push(`${config.tone} tone`);
+     if (config.style && config.style !== 'Tiêu chuẩn') instructions.push(`${config.style} style`);
+  }
+  
   if (config.instructions) instructions.push(config.instructions.trim());
 
-  // Explicitly prompt for the language
-  const textToSpeech = `Say in ${langName} with ${instructions.join(', ')}: ${config.text}`;
+  // Use rawVoiceName for standard, analyzed closestVoice for clone
+  const targetVoice = config.isClone ? closestVoice : rawVoiceName;
 
-  try {
-    const ttsPromise = ai.models.generateContent({
-        model,
-        contents: [{ parts: [{ text: textToSpeech }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: rawVoiceName as any },
-            },
-          },
-        },
-    });
+  for (let i = 0; i < textChunks.length; i++) {
+      const chunk = textChunks[i];
+      try {
+          const textToSpeech = `Say in ${langName} with ${instructions.join(', ')}: ${chunk}`;
+          const ttsResponse = await ai.models.generateContent({
+              model: ttsModel,
+              contents: [{ parts: [{ text: textToSpeech }] }],
+              config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: { prebuiltVoiceConfig: { voiceName: targetVoice as any } },
+                },
+              },
+          });
+          const base64 = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+          
+          if (base64) {
+              const bytes = base64ToUint8Array(base64);
+              audioParts.push(bytes);
 
-    const imagePromptPromise = config.isPreview 
-      ? Promise.resolve("Preview mode - No image") 
-      : generateImagePromptCommon(config.text, apiKey);
-
-    const [response, imagePrompt] = await Promise.all([ttsPromise, imagePromptPromise]);
-
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) throw new Error("Không có dữ liệu âm thanh.");
-
-    return {
-      audioUrl: base64ToWavBlobURL(base64Audio),
-      imagePrompt
-    };
-  } catch (error: any) {
-    console.error("Lỗi Gemini TTS:", error);
-    throw new Error(error.message || "Không thể tạo giọng nói Gemini.");
+              // *** STREAMING: Emit segment immediately ***
+              if (config.onSegmentGenerated) {
+                  const segmentUrl = audioBytesToWavBlobURL(bytes);
+                  const segment: AudioSegment = {
+                      id: i,
+                      text: chunk,
+                      audioUrl: segmentUrl
+                  };
+                  config.onSegmentGenerated(segment);
+              }
+          }
+      } catch (error: any) {
+          console.error(`Lỗi tạo chunk ${i}:`, error);
+          // Continue to next chunk even if one fails
+      }
   }
+
+  // Final Output Construction
+  if (audioParts.length === 0) throw new Error("Không có dữ liệu âm thanh nào được tạo.");
+
+  // Merge Audio
+  const totalLength = audioParts.reduce((acc, curr) => acc + curr.length, 0);
+  const mergedAudio = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const part of audioParts) {
+    mergedAudio.set(part, offset);
+    offset += part.length;
+  }
+
+  // Create WAV Blob
+  const audioUrl = audioBytesToWavBlobURL(mergedAudio);
+
+  return { audioUrl };
 };
 
 // --- Utils ---
-function base64ToWavBlobURL(base64: string): string {
-  const binaryString = atob(base64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  const wavHeader = createWavHeader(len, 24000, 1, 16);
-  const wavBytes = new Uint8Array(wavHeader.length + len);
+
+function base64ToUint8Array(base64: string): Uint8Array {
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+}
+
+function audioBytesToWavBlobURL(bytes: Uint8Array): string {
+  // Gemini returns PCM data (typically 24kHz, 1 channel, 16 bit based on SDK docs/behavior)
+  const sampleRate = 24000; 
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  
+  const wavHeader = createWavHeader(bytes.length, sampleRate, numChannels, bitsPerSample);
+  const wavBytes = new Uint8Array(wavHeader.length + bytes.length);
   wavBytes.set(wavHeader, 0);
   wavBytes.set(bytes, wavHeader.length);
+  
   const blob = new Blob([wavBytes], { type: 'audio/wav' });
   return URL.createObjectURL(blob);
 }

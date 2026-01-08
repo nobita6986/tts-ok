@@ -12,13 +12,22 @@ export interface TTSConfig {
   isClone?: boolean;
   audioSample?: string;
   audioMimeType?: string;
-  isPreview?: boolean; // New flag for preview mode
-  elevenLabsModel?: string; // New field for ElevenLabs Model ID
+  isPreview?: boolean; 
+  elevenLabsModel?: string; 
+  // Callback for streaming segments
+  onSegmentGenerated?: (segment: AudioSegment) => void;
+}
+
+export interface AudioSegment {
+  id: number;
+  text: string;
+  audioUrl: string;
+  duration?: number;
 }
 
 export interface GeneratedAudio {
-  audioUrl: string;
-  imagePrompt: string;
+  fullAudioUrl?: string; // Optional because it might not be ready yet
+  segments: AudioSegment[];
   text: string;
   voice: string;
   provider: TTSProvider;
@@ -36,7 +45,7 @@ export interface SavedScript {
   style: string;
   instructions: string;
   timestamp: number;
-  elevenLabsModel?: string; // Save the model preference
+  elevenLabsModel?: string; 
 }
 
 export enum GenerationStatus {

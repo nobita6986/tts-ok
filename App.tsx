@@ -4,9 +4,9 @@ import { ScriptForm } from './components/ScriptForm';
 import { ScriptOutput } from './components/ScriptOutput';
 import { generateSpeechGemini, getStoredApiKeys, setStoredApiKeys } from './services/geminiService';
 import { generateSpeechElevenLabs, getStoredElevenLabsKeys, setStoredElevenLabsKeys } from './services/elevenLabsService';
-import { TTSConfig, GeneratedAudio, GenerationStatus, SavedScript } from './types';
+import { TTSConfig, GeneratedAudio, GenerationStatus, SavedScript, AudioSegment } from './types';
 import { APP_BACKGROUNDS } from './constants';
-import { Mic, Sparkles, Volume2, Palette, Settings, Key, X, Eye, EyeOff, ExternalLink, ShieldCheck, AlertCircle, Activity, Info, BookOpen, History, Trash2, ArrowRightCircle } from 'lucide-react';
+import { Mic, Sparkles, Volume2, Palette, Settings, Key, X, ExternalLink, ShieldCheck, AlertCircle, Activity, Info, BookOpen, History, Trash2, ArrowRightCircle } from 'lucide-react';
 
 function App() {
   const [status, setStatus] = useState<GenerationStatus>(GenerationStatus.IDLE);
@@ -33,7 +33,10 @@ function App() {
      try {
          const saved = localStorage.getItem('TTS_SCRIPT_LIBRARY');
          return saved ? JSON.parse(saved) : [];
-     } catch (e) { return []; }
+     } catch (e) { 
+         console.warn("Failed to load library from localStorage", e);
+         return []; 
+     }
   });
   const [selectedScript, setSelectedScript] = useState<SavedScript | null>(null);
 
@@ -48,9 +51,14 @@ function App() {
     setHasElevenLabs(elKeys.length > 0);
   }, []);
 
-  // Save library to local storage
+  // Save library to local storage with safety check
   useEffect(() => {
-    localStorage.setItem('TTS_SCRIPT_LIBRARY', JSON.stringify(library));
+    try {
+      localStorage.setItem('TTS_SCRIPT_LIBRARY', JSON.stringify(library));
+    } catch (e) {
+      console.error("Failed to save library to localStorage (Quota exceeded?)", e);
+      setError("Bộ nhớ trình duyệt đã đầy. Không thể lưu thêm kịch bản vào thư viện.");
+    }
   }, [library]);
 
   const handleGenerateAudio = async (config: TTSConfig) => {
@@ -69,22 +77,43 @@ function App() {
     setStatus(GenerationStatus.GENERATING);
     setError(null);
     
+    // Initialize result with empty segments
+    const initialResult: GeneratedAudio = {
+      segments: [],
+      text: config.text,
+      voice: config.voice,
+      provider: config.provider,
+      language: config.language,
+      timestamp: Date.now()
+    };
+    setResult(initialResult);
+
+    // Callback to update segments in real-time
+    config.onSegmentGenerated = (segment: AudioSegment) => {
+        setResult(prev => {
+            if (!prev) return initialResult;
+            return {
+                ...prev,
+                segments: [...prev.segments, segment]
+            };
+        });
+    };
+    
     try {
-      let resultData;
+      let finalData;
       if (config.provider === 'elevenlabs') {
-        resultData = await generateSpeechElevenLabs(config);
+        finalData = await generateSpeechElevenLabs(config);
       } else {
-        resultData = await generateSpeechGemini(config);
+        finalData = await generateSpeechGemini(config);
       }
 
-      setResult({
-        audioUrl: resultData.audioUrl,
-        imagePrompt: resultData.imagePrompt,
-        text: config.text,
-        voice: config.voice,
-        provider: config.provider,
-        language: config.language,
-        timestamp: Date.now()
+      // Update with final full audio URL
+      setResult(prev => {
+          if (!prev) return null;
+          return {
+              ...prev,
+              fullAudioUrl: finalData.audioUrl
+          };
       });
       setStatus(GenerationStatus.SUCCESS);
 
@@ -99,7 +128,7 @@ function App() {
           style: config.style || "Tiêu chuẩn",
           instructions: config.instructions || "",
           timestamp: Date.now(),
-          elevenLabsModel: config.elevenLabsModel // Save the model info
+          elevenLabsModel: config.elevenLabsModel 
       };
       setLibrary(prev => [newScript, ...prev]);
 
@@ -135,6 +164,12 @@ function App() {
       setLibrary(prev => prev.filter(item => item.id !== id));
   };
 
+  const clearLibrary = () => {
+    if (window.confirm("Bạn có chắc chắn muốn xóa toàn bộ kịch bản đã lưu? Hành động này không thể hoàn tác.")) {
+      setLibrary([]);
+    }
+  };
+
   const loadScript = (script: SavedScript) => {
       setSelectedScript(script);
       setShowLibraryModal(false);
@@ -145,6 +180,7 @@ function App() {
       className="min-h-screen pb-12 font-sans transition-colors duration-700"
       style={{ backgroundColor: bgColor.value, color: bgColor.isLight ? '#1e293b' : '#e2e8f0' }}
     >
+      {/* ... (Modal Components same as before) ... */}
       {/* --- GUIDE MODAL --- */}
       {showGuideModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
@@ -207,7 +243,17 @@ function App() {
                        <p className="text-xs text-slate-500">Lịch sử các đoạn text bạn đã tạo voice</p>
                    </div>
                 </div>
-                <button onClick={() => setShowLibraryModal(false)}><X className="w-5 h-5 text-slate-400 hover:text-white" /></button>
+                <div className="flex items-center gap-2">
+                    {library.length > 0 && (
+                      <button 
+                        onClick={clearLibrary}
+                        className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Xóa tất cả
+                      </button>
+                    )}
+                    <button onClick={() => setShowLibraryModal(false)} className="p-1 hover:bg-white/5 rounded-full"><X className="w-5 h-5 text-slate-400 hover:text-white" /></button>
+                </div>
               </div>
               
               <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-slate-900">
@@ -260,7 +306,7 @@ function App() {
         </div>
       )}
 
-      {/* API Configuration Modal */}
+      {/* API Configuration Modal (Same as before) */}
       {showApiModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
           <div className="bg-slate-900 border border-slate-700 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-slide-up flex flex-col max-h-[90vh]">
@@ -463,7 +509,7 @@ function App() {
 
         <div className="grid lg:grid-cols-12 gap-8 items-stretch min-h-[650px]">
           {/* Left Column: Input Form */}
-          <div className={`lg:col-span-5 flex flex-col transition-all duration-500 ${status === GenerationStatus.SUCCESS ? 'hidden xl:flex' : ''}`}>
+          <div className={`lg:col-span-5 flex flex-col transition-all duration-500 ${status === GenerationStatus.SUCCESS || (result && result.segments.length > 0) ? 'hidden xl:flex' : ''}`}>
                <ScriptForm 
                  onGenerateAudio={handleGenerateAudio}
                  isGenerating={status === GenerationStatus.GENERATING}
@@ -473,10 +519,11 @@ function App() {
 
           {/* Right Column: Output or Placeholder */}
           <div className={`lg:col-span-7 w-full transition-all duration-500`}>
-            {status === GenerationStatus.SUCCESS && result ? (
+            {(result && result.segments.length > 0) ? (
               <ScriptOutput 
                 result={result} 
                 onReset={handleReset} 
+                isGenerating={status === GenerationStatus.GENERATING}
               />
             ) : (
                <div className={`h-full flex flex-col items-center justify-center min-h-[400px] border-2 border-dashed rounded-2xl p-8 text-center transition-opacity duration-300 ${status === GenerationStatus.GENERATING ? 'opacity-50' : 'opacity-100'} ${bgColor.isLight ? 'border-slate-300 bg-white/40' : 'border-slate-800 bg-slate-900/30'}`}>

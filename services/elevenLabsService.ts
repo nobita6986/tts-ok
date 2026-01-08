@@ -1,6 +1,6 @@
 
-import { TTSConfig } from "../types";
-import { generateImagePromptCommon, getActiveApiKey as getGeminiActiveKey } from "./geminiService";
+import { TTSConfig, AudioSegment } from "../types";
+import { splitTextIntoChunks } from "./geminiService";
 
 const EL_STORAGE_KEY = 'ELEVENLABS_API_KEYS';
 const EL_INDEX_KEY = 'ELEVENLABS_API_INDEX';
@@ -39,7 +39,7 @@ export const getActiveElevenLabsKey = (): string | null => {
   return selectedKey;
 };
 
-export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ audioUrl: string, imagePrompt: string }> => {
+export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ audioUrl: string }> => {
   const apiKey = getActiveElevenLabsKey();
   
   if (!apiKey) {
@@ -47,48 +47,61 @@ export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ aud
   }
 
   try {
-    // Determine Model ID: Use config provided ID or fallback to Multilingual v2
     const modelId = config.elevenLabsModel || "eleven_multilingual_v2";
+    // Set explicit limit of 5000 for ElevenLabs
+    const textChunks = splitTextIntoChunks(config.text, 5000);
+    const audioBlobs: Blob[] = [];
 
-    // Parallel: Call ElevenLabs TTS and Gemini Image Prompt
-    const ttsPromise = fetch(`https://api.elevenlabs.io/v1/text-to-speech/${config.voice}`, {
-      method: 'POST',
-      headers: {
-        'Accept': 'audio/mpeg',
-        'xi-api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        text: config.text,
-        model_id: modelId,
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-          style: config.style !== 'Tiêu chuẩn' ? 0.5 : 0.0, // Basic style mapping
+    // Process chunks sequentially
+    for (let i = 0; i < textChunks.length; i++) {
+        const chunk = textChunks[i];
+        
+        const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${config.voice}`, {
+            method: 'POST',
+            headers: {
+                'Accept': 'audio/mpeg',
+                'xi-api-key': apiKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                text: chunk,
+                model_id: modelId,
+                voice_settings: {
+                    stability: 0.5,
+                    similarity_boost: 0.75,
+                    style: config.style !== 'Tiêu chuẩn' ? 0.5 : 0.0, 
+                }
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail?.message || "Lỗi khi gọi ElevenLabs API");
         }
-      })
-    });
 
-    // We still use Gemini for Image Prompting even when using ElevenLabs voice
-    // But skip it if this is just a preview
-    const geminiKey = getGeminiActiveKey();
-    const imagePromptPromise = (geminiKey && !config.isPreview)
-      ? generateImagePromptCommon(config.text, geminiKey) 
-      : Promise.resolve("Preview mode or No Gemini Key - No Image Prompt");
+        const blob = await response.blob();
+        audioBlobs.push(blob);
 
-    const [ttsResponse, imagePrompt] = await Promise.all([ttsPromise, imagePromptPromise]);
-
-    if (!ttsResponse.ok) {
-      const errorData = await ttsResponse.json();
-      throw new Error(errorData.detail?.message || "Lỗi khi gọi ElevenLabs API");
+        // *** STREAMING: Emit segment immediately ***
+        if (config.onSegmentGenerated) {
+            const segmentUrl = URL.createObjectURL(blob);
+            const segment: AudioSegment = {
+                id: i,
+                text: chunk,
+                audioUrl: segmentUrl
+            };
+            config.onSegmentGenerated(segment);
+        }
     }
 
-    const audioBlob = await ttsResponse.blob();
-    const audioUrl = URL.createObjectURL(audioBlob);
+    if (audioBlobs.length === 0) throw new Error("Không có âm thanh nào được tạo.");
+
+    // Concatenate MP3 Blobs
+    const combinedBlob = new Blob(audioBlobs, { type: 'audio/mpeg' });
+    const audioUrl = URL.createObjectURL(combinedBlob);
 
     return {
-      audioUrl,
-      imagePrompt
+      audioUrl
     };
 
   } catch (error: any) {
