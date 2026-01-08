@@ -1,20 +1,228 @@
 
-export const VOICES = [
-  // --- Giọng Việt Nam (Đã việt hóa tên) ---
-  { id: "Aoede", name: "Ngọc Huyền (Aoede)", gender: "Nữ", traits: "Tự tin, Chuyên nghiệp, Giọng Tin Tức" },
-  { id: "Charon", name: "Minh Quân (Charon)", gender: "Nam", traits: "Trầm ấm, Trưởng thành, Giọng Tài Liệu" },
-  { id: "Fenrir", name: "Thanh Tùng (Fenrir)", gender: "Nam", traits: "Mạnh mẽ, Sôi nổi, Giọng Review" },
-  { id: "Kore", name: "Diệu Linh (Kore)", gender: "Nữ", traits: "Điềm tĩnh, Thư giãn, Giọng Kể Chuyện" },
-  { id: "Puck", name: "Hoàng Bách (Puck)", gender: "Nam", traits: "Nhẹ nhàng, Tự nhiên, Giọng Phóng Sự" },
-  { id: "Zephyr", name: "Mai Anh (Zephyr)", gender: "Nữ", traits: "Trong trẻo, Ngọt ngào, Giọng Đọc Sách" },
+export const LANGUAGES = [
+  { code: "vi-VN", name: "Tiếng Việt", flag: "🇻🇳" },
+  { code: "en-US", name: "Tiếng Anh (Mỹ)", flag: "🇺🇸" },
+  { code: "en-GB", name: "Tiếng Anh (Anh)", flag: "🇬🇧" },
+  { code: "ja-JP", name: "Tiếng Nhật", flag: "🇯🇵" },
+  { code: "ko-KR", name: "Tiếng Hàn", flag: "🇰🇷" },
+];
 
-  // --- Giọng Quốc Tế (Gốc - Tiếng Anh US) ---
-  { id: "Aoede_EN", name: "Aoede (Tiếng Anh - US)", gender: "Nữ", traits: "Confident, Professional (Chuyên nghiệp)" },
-  { id: "Charon_EN", name: "Charon (Tiếng Anh - US)", gender: "Nam", traits: "Deep, Authoritative (Trầm, Uy quyền)" },
-  { id: "Fenrir_EN", name: "Fenrir (Tiếng Anh - US)", gender: "Nam", traits: "Energetic, Strong (Năng lượng, Mạnh mẽ)" },
-  { id: "Kore_EN", name: "Kore (Tiếng Anh - US)", gender: "Nữ", traits: "Calm, Soothing (Thư giãn, Êm dịu)" },
-  { id: "Puck_EN", name: "Puck (Tiếng Anh - US)", gender: "Nam", traits: "Natural, Spoken (Tự nhiên, Đời thường)" },
-  { id: "Zephyr_EN", name: "Zephyr (Tiếng Anh - US)", gender: "Nữ", traits: "High pitched, Sweet (Trong trẻo, Ngọt)" },
+export const PROVIDERS = [
+  { id: 'gemini', name: 'Google Gemini', icon: 'Sparkles' },
+  { id: 'elevenlabs', name: 'ElevenLabs', icon: 'Activity' }
+];
+
+export const ELEVENLABS_MODELS = [
+  { 
+    id: 'eleven_multilingual_v3', 
+    name: 'Eleven v3 (Alpha - Tốt nhất)', 
+    description: 'Model biểu cảm nhất, hỗ trợ 70+ ngôn ngữ (bao gồm Tiếng Việt). Cần prompt chi tiết hơn.' 
+  },
+  { 
+    id: 'eleven_multilingual_v2', 
+    name: 'Multilingual v2 (High Quality)', 
+    description: 'Giọng đọc tự nhiên như thật, giàu cảm xúc. Ổn định cho audiobook & voiceover (29 ngôn ngữ).' 
+  },
+  { 
+    id: 'eleven_flash_v2_5', 
+    name: 'Flash v2.5 (Nhanh nhất)', 
+    description: 'Độ trễ siêu thấp, hỗ trợ 32 ngôn ngữ. Tối ưu chi phí và tốc độ hội thoại.' 
+  },
+  { 
+    id: 'eleven_turbo_v2_5', 
+    name: 'Turbo v2.5 (Siêu tốc)', 
+    description: 'Chất lượng cao, độ trễ thấp, hỗ trợ 32 ngôn ngữ. Phù hợp cho Developer.' 
+  },
+  { 
+    id: 'eleven_turbo_v2', 
+    name: 'Turbo v2 (English Only)', 
+    description: 'Chỉ hỗ trợ Tiếng Anh. Tốc độ cao, độ trễ thấp.' 
+  },
+  { 
+    id: 'eleven_flash_v2', 
+    name: 'Flash v2 (Legacy)', 
+    description: 'Model siêu nhanh phiên bản cũ (English Only).' 
+  }
+];
+
+export interface VoiceOption {
+  id: string;
+  name: string;
+  gender: string;
+  traits: string;
+  provider: string;
+  lang: string;
+  previewUrl?: string; // Optional URL for audio preview
+}
+
+export const VOICES: VoiceOption[] = [
+  // --- GEMINI VOICES (VIETNAMESE) ---
+  { id: "Aoede", name: "Ngọc Huyền (Aoede)", gender: "Nữ", traits: "Tự tin, Tin tức", provider: "gemini", lang: "vi-VN" },
+  { id: "Charon", name: "Minh Quân (Charon)", gender: "Nam", traits: "Trầm ấm, Tài liệu", provider: "gemini", lang: "vi-VN" },
+  { id: "Fenrir", name: "Thanh Tùng (Fenrir)", gender: "Nam", traits: "Sôi nổi, Review", provider: "gemini", lang: "vi-VN" },
+  { id: "Kore", name: "Diệu Linh (Kore)", gender: "Nữ", traits: "Thư giãn, Kể chuyện", provider: "gemini", lang: "vi-VN" },
+  { id: "Puck", name: "Hoàng Bách (Puck)", gender: "Nam", traits: "Tự nhiên, Phóng sự", provider: "gemini", lang: "vi-VN" },
+  { id: "Zephyr", name: "Mai Anh (Zephyr)", gender: "Nữ", traits: "Ngọt ngào, Đọc sách", provider: "gemini", lang: "vi-VN" },
+
+  // --- GEMINI (US ENGLISH) ---
+  { id: "Aoede_US", name: "Aoede (US)", gender: "Nữ", traits: "Confident, Professional", provider: "gemini", lang: "en-US" },
+  { id: "Charon_US", name: "Charon (US)", gender: "Nam", traits: "Deep, Authoritative", provider: "gemini", lang: "en-US" },
+  { id: "Fenrir_US", name: "Fenrir (US)", gender: "Nam", traits: "Energetic, Strong", provider: "gemini", lang: "en-US" },
+  { id: "Kore_US", name: "Kore (US)", gender: "Nữ", traits: "Calm, Soothing", provider: "gemini", lang: "en-US" },
+  { id: "Puck_US", name: "Puck (US)", gender: "Nam", traits: "Natural, Spoken", provider: "gemini", lang: "en-US" },
+  { id: "Zephyr_US", name: "Zephyr (US)", gender: "Nữ", traits: "High pitched, Sweet", provider: "gemini", lang: "en-US" },
+
+  // --- GEMINI (UK ENGLISH - Mapped) ---
+  { id: "Puck_GB", name: "Arthur (Puck)", gender: "Nam", traits: "British, Formal", provider: "gemini", lang: "en-GB" },
+  { id: "Kore_GB", name: "Emma (Kore)", gender: "Nữ", traits: "British, Gentle", provider: "gemini", lang: "en-GB" },
+  { id: "Fenrir_GB", name: "Harry (Fenrir)", gender: "Nam", traits: "British, Energetic", provider: "gemini", lang: "en-GB" },
+
+  // --- GEMINI (JAPANESE - Mapped) ---
+  { id: "Kore_JP", name: "Sakura (Kore)", gender: "Nữ", traits: "Soft, Anime style", provider: "gemini", lang: "ja-JP" },
+  { id: "Charon_JP", name: "Kenji (Charon)", gender: "Nam", traits: "Deep, Samurai", provider: "gemini", lang: "ja-JP" },
+  { id: "Zephyr_JP", name: "Hina (Zephyr)", gender: "Nữ", traits: "High pitch, Cute", provider: "gemini", lang: "ja-JP" },
+
+  // --- GEMINI (KOREAN - Mapped) ---
+  { id: "Aoede_KR", name: "Ji-woo (Aoede)", gender: "Nữ", traits: "Professional, News", provider: "gemini", lang: "ko-KR" },
+  { id: "Puck_KR", name: "Min-ho (Puck)", gender: "Nam", traits: "Casual, Drama", provider: "gemini", lang: "ko-KR" },
+
+  // --- ELEVENLABS VOICES (Updated to 'multi' for better filtering) ---
+  
+  // -- Popular Male (Multilingual capable) --
+  { 
+    id: "pNInz6obpgDQGcFmaJgB", 
+    name: "Adam", 
+    gender: "Nam", 
+    traits: "Mỹ, Deep, Narration (Legacy)", 
+    provider: "elevenlabs", 
+    lang: "multi", // Changed to multi
+    previewUrl: "https://storage.googleapis.com/eleven-public-cdn/audio/marketing/adam.mp3"
+  },
+  { 
+    id: "ErXwobaYiN019PkySvjV", 
+    name: "Antoni", 
+    gender: "Nam", 
+    traits: "Mỹ, Cân bằng, Podcast", 
+    provider: "elevenlabs", 
+    lang: "multi",
+    previewUrl: "https://storage.googleapis.com/eleven-public-cdn/audio/marketing/antoni.mp3"
+  },
+  { 
+    id: "IKne3meq5aSn9XLyUdCD", 
+    name: "Charlie", 
+    gender: "Nam", 
+    traits: "Úc, Tự nhiên, Casual", 
+    provider: "elevenlabs", 
+    lang: "multi",
+    previewUrl: "https://storage.googleapis.com/eleven-public-cdn/audio/marketing/charlie.mp3"
+  },
+  { 
+    id: "TxGEqnHWrfWFTfGW9XjX", 
+    name: "Josh", 
+    gender: "Nam", 
+    traits: "Mỹ, Trầm, Kể chuyện", 
+    provider: "elevenlabs", 
+    lang: "multi",
+    previewUrl: "https://storage.googleapis.com/eleven-public-cdn/audio/marketing/josh.mp3" 
+  },
+  { 
+    id: "VR6AewLTigWg4xSOukaG", 
+    name: "Arnold", 
+    gender: "Nam", 
+    traits: "Mỹ, Giọng Crispy", 
+    provider: "elevenlabs", 
+    lang: "multi" 
+  },
+  
+  // -- Popular Female (Multilingual capable) --
+  { 
+    id: "21m00Tcm4TlvDq8ikWAM", 
+    name: "Rachel", 
+    gender: "Nữ", 
+    traits: "Mỹ, Thuyết minh, Điềm tĩnh", 
+    provider: "elevenlabs", 
+    lang: "multi",
+    previewUrl: "https://storage.googleapis.com/eleven-public-cdn/audio/marketing/rachel.mp3"
+  },
+  { 
+    id: "AZnzlk1XvdvUeBnXmlld", 
+    name: "Domi", 
+    gender: "Nữ", 
+    traits: "Mỹ, Mạnh mẽ, Tin tức", 
+    provider: "elevenlabs", 
+    lang: "multi",
+    previewUrl: "https://storage.googleapis.com/eleven-public-cdn/audio/marketing/domi.mp3"
+  },
+  { 
+    id: "EXAVITQu4vr4xnSDxMaL", 
+    name: "Bella", 
+    gender: "Nữ", 
+    traits: "Mỹ, Dịu dàng, Kể chuyện", 
+    provider: "elevenlabs", 
+    lang: "multi",
+    previewUrl: "https://storage.googleapis.com/eleven-public-cdn/audio/marketing/bella.mp3"
+  },
+  { 
+    id: "FGY2WhTYpPnrIDTdsKH5", 
+    name: "Laura", 
+    gender: "Nữ", 
+    traits: "Mỹ, Upbeat, Social Media", 
+    provider: "elevenlabs", 
+    lang: "multi" 
+  },
+  { 
+    id: "jsCqWAovK2LkecY7zXl4", 
+    name: "Freya", 
+    gender: "Nữ", 
+    traits: "Mỹ, Trầm, Dẫn truyện", 
+    provider: "elevenlabs", 
+    lang: "multi" 
+  },
+  { 
+    id: "XrExE9yKIg1WjnnlVkGX", 
+    name: "Matilda", 
+    gender: "Nữ", 
+    traits: "Mỹ, Ấm áp, Audiobook", 
+    provider: "elevenlabs", 
+    lang: "multi",
+    previewUrl: "https://storage.googleapis.com/eleven-public-cdn/audio/marketing/matilda.mp3"
+  },
+
+  // -- UK English (Can also speak VN via Multilingual Model) --
+  { 
+    id: "Ind3XpXQ7K0yY1s4a1kG", 
+    name: "George", 
+    gender: "Nam", 
+    traits: "Anh, Ấm áp, Tường thuật", 
+    provider: "elevenlabs", 
+    lang: "multi" 
+  },
+  { 
+    id: "bVMeCyTHy58xNoL34h3p", 
+    name: "Jeremy", 
+    gender: "Nam", 
+    traits: "Anh, Trầm, Quý ông", 
+    provider: "elevenlabs", 
+    lang: "multi" 
+  },
+  { 
+    id: "zCAUftsz0xNEyrj0h7OV", 
+    name: "Patrick", 
+    gender: "Nam", 
+    traits: "Anh, Shouty, Hype", 
+    provider: "elevenlabs", 
+    lang: "multi" 
+  },
+  
+  // -- Specific Character Voices (Keep Language Tag for filtering if needed, or make multi) --
+  { id: "7Y44f81P8s14FvG8l8Xl", name: "Takumi", gender: "Nam", traits: "Nhật, Điềm đạm", provider: "elevenlabs", lang: "ja-JP" },
+  { id: "bIHjv166Xa93aQ9gX0lD", name: "Kyoko", gender: "Nữ", traits: "Nhật, Anime, Trong sáng", provider: "elevenlabs", lang: "ja-JP" },
+  
+  { id: "YkO5Hq58XX50Q6S2w1lE", name: "Jin-Soo", gender: "Nam", traits: "Hàn, Tin tức, Nghiêm túc", provider: "elevenlabs", lang: "ko-KR" },
+  { id: "65r76831Q871w21285Xl", name: "So-Young", gender: "Nữ", traits: "Hàn, Dịu dàng, Kể chuyện", provider: "elevenlabs", lang: "ko-KR" },
+
+  // Special ID to trigger input field
+  { id: "custom_input", name: "➕ Nhập Voice ID khác...", gender: "Tùy chỉnh", traits: "Nhập ID giọng của bạn", provider: "elevenlabs", lang: "all" },
 ];
 
 export const TONES = [

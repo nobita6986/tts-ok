@@ -1,34 +1,73 @@
 
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { TTSConfig } from "../types";
-import { VOICES } from "../constants";
+import { LANGUAGES } from "../constants";
 
-export const getStoredApiKey = (): string | null => {
-  return localStorage.getItem('GEMINI_API_KEY');
+// --- KEY MANAGEMENT LOGIC ---
+
+const GEMINI_STORAGE_KEY = 'GEMINI_API_KEYS';
+const GEMINI_INDEX_KEY = 'GEMINI_API_INDEX';
+
+export const getStoredApiKeys = (): string[] => {
+  const stored = localStorage.getItem(GEMINI_STORAGE_KEY);
+  if (!stored) return [];
+  try {
+    // Support legacy single string format or new JSON array format
+    const parsed = JSON.parse(stored);
+    if (Array.isArray(parsed)) return parsed;
+    return [stored]; // Handle legacy plain string (though JSON.parse might fail if simple string, handled in catch)
+  } catch (e) {
+    // If it's a plain string (legacy), return as single item array
+    return [stored];
+  }
 };
 
-export const setStoredApiKey = (key: string) => {
-  localStorage.setItem('GEMINI_API_KEY', key);
+export const setStoredApiKeys = (keys: string[]) => {
+  // Filter empty strings
+  const validKeys = keys.map(k => k.trim()).filter(k => k.length > 0);
+  localStorage.setItem(GEMINI_STORAGE_KEY, JSON.stringify(validKeys));
 };
+
+export const getActiveApiKey = (): string | null => {
+  const keys = getStoredApiKeys();
+  
+  // Also consider env key if no user keys, or mix it? 
+  // Priority: User Keys > Env Key.
+  if (keys.length === 0) {
+    return process.env.API_KEY || null;
+  }
+
+  // Round-Robin Logic
+  let currentIndex = parseInt(localStorage.getItem(GEMINI_INDEX_KEY) || '0', 10);
+  if (isNaN(currentIndex) || currentIndex >= keys.length) {
+    currentIndex = 0;
+  }
+
+  const selectedKey = keys[currentIndex];
+
+  // Increment and save index for next time
+  const nextIndex = (currentIndex + 1) % keys.length;
+  localStorage.setItem(GEMINI_INDEX_KEY, nextIndex.toString());
+
+  return selectedKey;
+};
+
+// --- SERVICE LOGIC ---
 
 const getClient = () => {
-  const apiKey = getStoredApiKey() || process.env.API_KEY;
+  const apiKey = getActiveApiKey();
   if (!apiKey) {
-    throw new Error("API Key chưa được cấu hình. Vui lòng vào phần Cài đặt để nhập key.");
+    throw new Error("Gemini API Key chưa được cấu hình.");
   }
   return new GoogleGenAI({ apiKey });
 };
 
-export const generateSpeech = async (config: TTSConfig): Promise<{ audioUrl: string, imagePrompt: string }> => {
-  const ai = getClient();
-  
-  // Clean the voice ID: Remove '_EN' suffix if present to get the raw API voice name (e.g. Aoede_EN -> Aoede)
-  const rawVoiceName = config.voice.split('_')[0];
-
-  // Helper function to generate Image Prompt (Parallel Task)
-  const generateImagePrompt = async (text: string): Promise<string> => {
+// Helper to generate image prompt (Common for both services logic)
+// UPDATED: Use Gemini 3 Flash Preview for faster text generation
+export const generateImagePromptCommon = async (text: string, apiKey: string): Promise<string> => {
     try {
-      const promptModel = "gemini-2.5-flash";
+      const ai = new GoogleGenAI({ apiKey });
+      const promptModel = "gemini-3-flash-preview"; 
       const promptResponse = await ai.models.generateContent({
         model: promptModel,
         contents: `Create a highly detailed, artistic, and photorealistic image generation prompt (in English) based on the following text. The prompt should describe the scene, mood, lighting, and subjects suitable for a YouTube thumbnail or cinematic background matching the content: "${text}". Only return the prompt text.`,
@@ -36,15 +75,28 @@ export const generateSpeech = async (config: TTSConfig): Promise<{ audioUrl: str
       return promptResponse.text || "Không thể tạo prompt ảnh.";
     } catch (e) {
       console.warn("Lỗi tạo prompt ảnh:", e);
-      return "Không thể tạo prompt ảnh do lỗi kết nối.";
+      return "Không thể tạo prompt ảnh.";
     }
-  };
+};
+
+export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUrl: string, imagePrompt: string }> => {
+  const apiKey = getActiveApiKey();
+  if (!apiKey) throw new Error("Gemini API Key chưa được cấu hình.");
   
-  // -- Voice Cloning Mode --
+  const ai = new GoogleGenAI({ apiKey });
+  
+  // Clean the voice ID for Gemini (remove _US, _JP suffixes)
+  const rawVoiceName = config.voice.split('_')[0];
+
+  // Logic Prompt ngôn ngữ
+  const langName = LANGUAGES.find(l => l.code === config.language)?.name || "Tiếng Việt";
+  
+  // --- Voice Cloning Mode (Gemini) ---
   if (config.isClone && config.audioSample) {
     try {
       // Step 1: Analyze Voice
-      const analysisModel = "gemini-2.5-flash"; 
+      // UPDATED: Use Gemini 3 Pro Preview for complex analysis tasks
+      const analysisModel = "gemini-3-pro-preview"; 
       const rawVoicesList = ["Aoede", "Charon", "Fenrir", "Kore", "Puck", "Zephyr"];
       
       const analysisPrompt = `
@@ -93,21 +145,22 @@ export const generateSpeech = async (config: TTSConfig): Promise<{ audioUrl: str
           }
       }
 
-      // Step 2: Synthesize Speech & Image Prompt (Parallel)
+      // Step 2: Synthesize
+      // NOTE: Gemini 3 TTS is not widely available in public docs as a separate model ID yet, 
+      // sticking to the stable preview TTS model for actual audio generation.
       const ttsModel = "gemini-2.5-flash-preview-tts";
       
       const userInstructions: string[] = [];
+      userInstructions.push(`Language: ${langName}`); // Enforce language
       if (styleDescription) userInstructions.push(styleDescription);
       if (config.tone && config.tone !== 'Tiêu chuẩn') userInstructions.push(config.tone);
       if (config.style && config.style !== 'Tiêu chuẩn') userInstructions.push(config.style);
       if (config.instructions) userInstructions.push(config.instructions);
       
-      const textPrompt = userInstructions.length > 0 
-        ? `Say with ${userInstructions.join(', ')}: "${config.text}"`
-        : config.text;
+      const textPrompt = `Say in ${langName} with ${userInstructions.join(', ')}: "${config.text}"`;
 
-      const [ttsResponse, imagePrompt] = await Promise.all([
-        ai.models.generateContent({
+      // Parallel execution: If preview, skip image prompt
+      const ttsPromise = ai.models.generateContent({
           model: ttsModel,
           contents: [{ parts: [{ text: textPrompt }] }],
           config: {
@@ -118,49 +171,42 @@ export const generateSpeech = async (config: TTSConfig): Promise<{ audioUrl: str
               },
             },
           },
-        }),
-        generateImagePrompt(config.text)
-      ]);
+      });
+
+      const imagePromptPromise = config.isPreview 
+        ? Promise.resolve("Preview mode - No image") 
+        : generateImagePromptCommon(config.text, apiKey);
+
+      const [ttsResponse, imagePrompt] = await Promise.all([ttsPromise, imagePromptPromise]);
 
       const base64Audio = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!base64Audio) {
-        throw new Error("Không có âm thanh nào được tạo từ bước tổng hợp bản sao.");
-      }
+      if (!base64Audio) throw new Error("Không có âm thanh trả về.");
+      
       return {
         audioUrl: base64ToWavBlobURL(base64Audio),
         imagePrompt
       };
 
     } catch (error: any) {
-      console.error("Lỗi sao chép giọng Gemini:", error);
-      throw new Error(error.message || "Không thể phân tích và sao chép giọng nói.");
+      console.error("Lỗi clone Gemini:", error);
+      throw new Error(error.message || "Lỗi khi clone giọng.");
     }
   }
 
-  // -- Standard TTS Mode --
+  // --- Standard Mode (Gemini) ---
   const model = "gemini-2.5-flash-preview-tts";
 
-  let textToSpeech = config.text;
   const instructions: string[] = [];
+  instructions.push(`Language: ${langName}`);
+  if (config.tone && config.tone !== 'Tiêu chuẩn') instructions.push(`${config.tone} tone`);
+  if (config.style && config.style !== 'Tiêu chuẩn') instructions.push(`${config.style} style`);
+  if (config.instructions) instructions.push(config.instructions.trim());
 
-  if (config.tone && config.tone !== 'Tiêu chuẩn') {
-    instructions.push(`${config.tone} tone`);
-  }
-  if (config.style && config.style !== 'Tiêu chuẩn') {
-    instructions.push(`${config.style} style`);
-  }
-  if (config.instructions && config.instructions.trim()) {
-    instructions.push(config.instructions.trim());
-  }
-
-  if (instructions.length > 0) {
-    textToSpeech = `Say with ${instructions.join(', ')}: ${config.text}`;
-  }
+  // Explicitly prompt for the language
+  const textToSpeech = `Say in ${langName} with ${instructions.join(', ')}: ${config.text}`;
 
   try {
-    // Run TTS and Image Prompt generation in parallel
-    const [response, imagePrompt] = await Promise.all([
-      ai.models.generateContent({
+    const ttsPromise = ai.models.generateContent({
         model,
         contents: [{ parts: [{ text: textToSpeech }] }],
         config: {
@@ -171,27 +217,28 @@ export const generateSpeech = async (config: TTSConfig): Promise<{ audioUrl: str
             },
           },
         },
-      }),
-      generateImagePrompt(config.text)
-    ]);
+    });
+
+    const imagePromptPromise = config.isPreview 
+      ? Promise.resolve("Preview mode - No image") 
+      : generateImagePromptCommon(config.text, apiKey);
+
+    const [response, imagePrompt] = await Promise.all([ttsPromise, imagePromptPromise]);
 
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) {
-      throw new Error("Không có âm thanh nào được tạo từ mô hình.");
-    }
+    if (!base64Audio) throw new Error("Không có dữ liệu âm thanh.");
 
     return {
       audioUrl: base64ToWavBlobURL(base64Audio),
       imagePrompt
     };
   } catch (error: any) {
-    console.error("Lỗi tạo giọng nói Gemini:", error);
-    throw new Error(error.message || "Không thể tạo giọng nói.");
+    console.error("Lỗi Gemini TTS:", error);
+    throw new Error(error.message || "Không thể tạo giọng nói Gemini.");
   }
 };
 
-// --- Audio Utilities ---
-
+// --- Utils ---
 function base64ToWavBlobURL(base64: string): string {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -199,14 +246,10 @@ function base64ToWavBlobURL(base64: string): string {
   for (let i = 0; i < len; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
-
-  // Gemini returns raw PCM (Int16 usually). We need to wrap it in a WAV container.
-  // Standard Gemini TTS is 24kHz Mono 16-bit PCM.
   const wavHeader = createWavHeader(len, 24000, 1, 16);
   const wavBytes = new Uint8Array(wavHeader.length + len);
   wavBytes.set(wavHeader, 0);
   wavBytes.set(bytes, wavHeader.length);
-
   const blob = new Blob([wavBytes], { type: 'audio/wav' });
   return URL.createObjectURL(blob);
 }
@@ -216,13 +259,12 @@ function createWavHeader(dataLength: number, sampleRate: number, numChannels: nu
   const view = new DataView(header);
   const blockAlign = (numChannels * bitsPerSample) / 8;
   const byteRate = sampleRate * blockAlign;
-
   writeString(view, 0, 'RIFF');
   view.setUint32(4, 36 + dataLength, true);
   writeString(view, 8, 'WAVE');
   writeString(view, 12, 'fmt ');
   view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
+  view.setUint16(20, 1, true); 
   view.setUint16(22, numChannels, true);
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, byteRate, true);
@@ -230,7 +272,6 @@ function createWavHeader(dataLength: number, sampleRate: number, numChannels: nu
   view.setUint16(34, bitsPerSample, true);
   writeString(view, 36, 'data');
   view.setUint32(40, dataLength, true);
-
   return new Uint8Array(header);
 }
 

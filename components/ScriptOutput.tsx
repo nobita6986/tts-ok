@@ -23,7 +23,7 @@ export const ScriptOutput: React.FC<ScriptOutputProps> = ({ result, onReset }) =
     const min = String(now.getMinutes()).padStart(2, '0');
     const sec = String(now.getSeconds()).padStart(2, '0');
     
-    const fileName = `${year}-${month}-${day}-${hour}-${min}-${sec} 2026-kati.vn.wav`;
+    const fileName = `${year}-${month}-${day}-${hour}-${min}-${sec}.wav`;
 
     const a = document.createElement('a');
     a.href = result.audioUrl;
