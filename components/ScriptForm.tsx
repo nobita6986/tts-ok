@@ -1,10 +1,9 @@
-
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { TTSConfig, TTSProvider, SavedScript } from '../types';
-import { VOICES, TONES, STYLES, LANGUAGES, PROVIDERS, ELEVENLABS_MODELS, VoiceOption } from '../constants';
+import { VOICES, TONES, STYLES, LANGUAGES, PROVIDERS, ELEVENLABS_MODELS, GEMINI_MODELS, VoiceOption } from '../constants';
 import { generateSpeechGemini } from '../services/geminiService';
 import { generateSpeechElevenLabs, createVoiceElevenLabs, getActiveElevenLabsKey } from '../services/elevenLabsService';
-import { Sparkles, Edit3, ChevronRight, Sliders, MessageSquare, Activity, Fingerprint, Play, Pause, Loader2, Zap, HelpCircle, Globe, Info, Upload, CheckCircle2, AlertTriangle, X, ArrowRight, Save } from 'lucide-react';
+import { Sparkles, Edit3, ChevronRight, Sliders, MessageSquare, Activity, Fingerprint, Play, Pause, Loader2, Zap, HelpCircle, Globe, Info, Upload, CheckCircle2, AlertTriangle, X, ArrowRight, Save, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface ScriptFormProps {
   onGenerateAudio: (config: TTSConfig) => void;
@@ -58,7 +57,11 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
   const [style, setStyle] = useState(STYLES[0]);
   const [instructions, setInstructions] = useState("");
   const [elevenLabsModel, setElevenLabsModel] = useState(ELEVENLABS_MODELS[0].id);
+  const [geminiModel, setGeminiModel] = useState(GEMINI_MODELS[0].id);
   
+  // Advanced Settings Toggle
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+
   // Clone Voice State
   const [showCloneForm, setShowCloneForm] = useState(false);
   const [cloneName, setCloneName] = useState("");
@@ -93,9 +96,8 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
       setTone(loadedScript.tone);
       setStyle(loadedScript.style);
       setInstructions(loadedScript.instructions || "");
-      if (loadedScript.elevenLabsModel) {
-          setElevenLabsModel(loadedScript.elevenLabsModel);
-      }
+      if (loadedScript.elevenLabsModel) setElevenLabsModel(loadedScript.elevenLabsModel);
+      if (loadedScript.geminiModel) setGeminiModel(loadedScript.geminiModel);
       
       // Handle Voice ID logic considering custom voices
       const allCurrentVoices = [...VOICES, ...createdVoices];
@@ -112,15 +114,7 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
     }
   }, [loadedScript, createdVoices]);
 
-  // Try to autofill clone key if available from settings (only strictly if user wants, but here we keep it manual for safety/clarity as per design)
-  useEffect(() => {
-      // Optional: if needed to pre-fill from stored keys
-      // const storedKey = getActiveElevenLabsKey();
-      // if (storedKey) setCloneApiKey(storedKey);
-  }, []);
-
   // Filter voices based on Provider and Language
-  // Merge static voices with any newly created voices in this session
   const allVoices = [...VOICES, ...createdVoices];
   
   const filteredVoices = allVoices.filter(v => {
@@ -131,11 +125,8 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
     if (provider === 'elevenlabs') {
       // Show "custom_input" always for ElevenLabs
       if (v.id === 'custom_input') return true;
-      
       // If voice is marked as 'multi', show it regardless of language selection 
-      // (Because ElevenLabs multilingual models make these voices speak any language)
       if (v.lang === 'multi' || v.lang === 'all') return true;
-      
       // Fallback: If voice has specific language tag, match it
       return v.lang === language;
     }
@@ -149,6 +140,30 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
     
     return v.lang === 'en-US'; 
   });
+
+  // Group Voices by Language/Category
+  const groupedVoices = useMemo(() => {
+      const groups: Record<string, VoiceOption[]> = {};
+      
+      filteredVoices.forEach(v => {
+          let label = "Khác";
+          if (v.id === 'custom_input') label = "Tùy chỉnh";
+          else if (v.gender === 'Custom') label = "Giọng Clone / Custom";
+          else if (v.lang === 'multi') label = "Đa ngôn ngữ (Phổ biến)";
+          else {
+              // Map lang code to Readable Name
+              const langObj = LANGUAGES.find(l => l.code === v.lang);
+              label = langObj ? langObj.name : "Khác";
+          }
+
+          if (!groups[label]) groups[label] = [];
+          groups[label].push(v);
+      });
+
+      // Sort keys to make sure Custom/Multi come first or specific order if needed
+      return groups;
+  }, [filteredVoices]);
+
 
   // Reset voice selection when provider or language changes
   useEffect(() => {
@@ -218,7 +233,8 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
         tone: tone,
         style: style,
         isPreview: true,
-        elevenLabsModel: elevenLabsModel // Use selected model for preview too
+        elevenLabsModel: elevenLabsModel, // Use selected model for preview too
+        geminiModel: geminiModel
     };
 
     try {
@@ -350,7 +366,8 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
       tone,
       style,
       instructions,
-      elevenLabsModel
+      elevenLabsModel,
+      geminiModel
     });
   };
 
@@ -373,7 +390,7 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
         
         {/* Provider Selection REMOVED per request */}
 
-        {/* ElevenLabs Model Selection */}
+        {/* --- MODEL SELECTION (GEMINI OR ELEVENLABS) --- */}
         {provider === 'elevenlabs' && (
            <div className="space-y-2 animate-fade-in">
               <TooltipLabel 
@@ -395,6 +412,31 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
                   ))}
                 </select>
                 <ChevronRight className="w-4 h-4 text-indigo-400 absolute right-3 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+              </div>
+           </div>
+        )}
+
+        {provider === 'gemini' && (
+           <div className="space-y-2 animate-fade-in">
+              <TooltipLabel 
+                label="Gemini TTS Model"
+                icon={Sparkles}
+                colorClass="text-brand-400"
+                tooltip="Chọn phiên bản mô hình Gemini. 'Flash' cho tốc độ cực nhanh, 'Pro' cho chất lượng âm thanh và độ biểu cảm cao hơn."
+              />
+              <div className="relative">
+                <select
+                  value={geminiModel}
+                  onChange={(e) => setGeminiModel(e.target.value)}
+                  className="w-full appearance-none bg-slate-900 border border-brand-500/30 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-brand-500 cursor-pointer text-sm"
+                >
+                  {GEMINI_MODELS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronRight className="w-4 h-4 text-brand-400 absolute right-3 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
               </div>
            </div>
         )}
@@ -450,10 +492,15 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
                         onChange={(e) => setVoice(e.target.value)}
                         className="w-full appearance-none bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-brand-500 cursor-pointer text-sm"
                     >
-                        {filteredVoices.map(v => (
-                        <option key={v.id} value={v.id}>
-                            {v.id === 'custom_input' ? v.name : `${v.name} (${v.gender}, ${v.traits})`}
-                        </option>
+                        {/* Render voices grouped by Language/Category */}
+                        {Object.entries(groupedVoices).map(([groupName, voices]) => (
+                            <optgroup key={groupName} label={groupName} className="bg-slate-800 text-slate-400 font-bold">
+                                {(voices as VoiceOption[]).map(v => (
+                                    <option key={v.id} value={v.id} className="text-white font-normal bg-slate-900">
+                                        {v.id === 'custom_input' ? v.name : `${v.name} (${v.gender}, ${v.traits})`}
+                                    </option>
+                                ))}
+                            </optgroup>
                         ))}
                     </select>
                     <ChevronRight className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
@@ -631,59 +678,77 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
           {/* Hide these sections when Clone Form is Active */}
           {(!showCloneForm) && (
             <>
-                {/* Tone & Style - Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                     {/* Tone */}
-                    <div className="space-y-2">
-                      <TooltipLabel 
-                         label="Tông giọng"
-                         tooltip="Điều chỉnh cảm xúc chủ đạo của giọng nói. 'Tiêu chuẩn' là trung tính. 'Cảm xúc' hoặc 'Thì thầm' phù hợp cho kể chuyện."
-                      />
-                      <div className="relative">
-                        <select 
-                          value={tone}
-                          onChange={(e) => setTone(e.target.value)}
-                          className="w-full appearance-none bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-brand-500 cursor-pointer text-sm"
-                        >
-                          {TONES.map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
-                        <ChevronRight className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
-                      </div>
-                    </div>
+                {/* --- COLLAPSIBLE ADVANCED SETTINGS --- */}
+                <div className="border border-slate-700 bg-slate-900/30 rounded-xl overflow-hidden">
+                    <button 
+                        type="button"
+                        onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+                        className="w-full flex items-center justify-between p-3 text-xs font-bold text-slate-400 hover:text-white uppercase tracking-wider transition-colors hover:bg-slate-800"
+                    >
+                        <span className="flex items-center gap-2">
+                            <Sliders className="w-4 h-4" /> Tùy chỉnh nâng cao
+                        </span>
+                        {showAdvancedSettings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
 
-                    {/* Style */}
-                    <div className="space-y-2">
-                      <TooltipLabel 
-                         label="Phong cách nói"
-                         tooltip="Điều chỉnh cách diễn đạt. 'Tin tức' sẽ trang trọng, nhanh. 'Kể chuyện' sẽ chậm rãi, nhấn nhá. 'Hội thoại' sẽ tự nhiên hơn."
-                      />
-                      <div className="relative">
-                        <select 
-                          value={style}
-                          onChange={(e) => setStyle(e.target.value)}
-                          className="w-full appearance-none bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-brand-500 cursor-pointer text-sm"
-                        >
-                          {STYLES.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                        <ChevronRight className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
-                      </div>
-                    </div>
-                </div>
+                    {showAdvancedSettings && (
+                        <div className="p-4 border-t border-slate-700 space-y-4 animate-slide-up">
+                            {/* Tone & Style - Grid */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* Tone */}
+                                <div className="space-y-2">
+                                <TooltipLabel 
+                                    label="Tông giọng"
+                                    tooltip="Điều chỉnh cảm xúc chủ đạo của giọng nói. 'Tiêu chuẩn' là trung tính. 'Cảm xúc' hoặc 'Thì thầm' phù hợp cho kể chuyện."
+                                />
+                                <div className="relative">
+                                    <select 
+                                    value={tone}
+                                    onChange={(e) => setTone(e.target.value)}
+                                    className="w-full appearance-none bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-brand-500 cursor-pointer text-sm"
+                                    >
+                                    {TONES.map(t => <option key={t} value={t}>{t}</option>)}
+                                    </select>
+                                    <ChevronRight className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+                                </div>
+                                </div>
 
-                {/* Custom Instructions */}
-                <div className="space-y-2">
-                    <TooltipLabel 
-                       label="Hướng dẫn bổ sung"
-                       icon={MessageSquare}
-                       tooltip="Nhập các chỉ dẫn cụ thể cho AI bằng tiếng Anh hoặc Việt. Ví dụ: 'Đọc thật chậm rãi', 'Ngắt nghỉ dài sau mỗi câu', 'Giọng vui vẻ phấn khởi'."
-                    />
-                    <input
-                      type="text"
-                      value={instructions}
-                      onChange={(e) => setInstructions(e.target.value)}
-                      placeholder={"vd: Ngừng 2 giây sau mỗi câu..."}
-                      className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all text-sm"
-                    />
+                                {/* Style */}
+                                <div className="space-y-2">
+                                <TooltipLabel 
+                                    label="Phong cách nói"
+                                    tooltip="Điều chỉnh cách diễn đạt. 'Tin tức' sẽ trang trọng, nhanh. 'Kể chuyện' sẽ chậm rãi, nhấn nhá. 'Hội thoại' sẽ tự nhiên hơn."
+                                />
+                                <div className="relative">
+                                    <select 
+                                    value={style}
+                                    onChange={(e) => setStyle(e.target.value)}
+                                    className="w-full appearance-none bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-brand-500 cursor-pointer text-sm"
+                                    >
+                                    {STYLES.map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                    <ChevronRight className="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none" />
+                                </div>
+                                </div>
+                            </div>
+
+                            {/* Custom Instructions */}
+                            <div className="space-y-2">
+                                <TooltipLabel 
+                                label="Hướng dẫn bổ sung"
+                                icon={MessageSquare}
+                                tooltip="Nhập các chỉ dẫn cụ thể cho AI bằng tiếng Anh hoặc Việt. Ví dụ: 'Đọc thật chậm rãi', 'Ngắt nghỉ dài sau mỗi câu', 'Giọng vui vẻ phấn khởi'."
+                                />
+                                <input
+                                type="text"
+                                value={instructions}
+                                onChange={(e) => setInstructions(e.target.value)}
+                                placeholder={"vd: Ngừng 2 giây sau mỗi câu..."}
+                                className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all text-sm"
+                                />
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Text Editor */}

@@ -143,7 +143,8 @@ function App() {
           style: config.style || "Tiêu chuẩn",
           instructions: config.instructions || "",
           timestamp: Date.now(),
-          elevenLabsModel: config.elevenLabsModel 
+          elevenLabsModel: config.elevenLabsModel,
+          geminiModel: config.geminiModel
       };
       setLibrary(prev => [newScript, ...prev]);
 
@@ -183,6 +184,10 @@ function App() {
     if (window.confirm("Bạn có chắc chắn muốn xóa toàn bộ kịch bản đã lưu? Hành động này không thể hoàn tác.")) {
       setLibrary([]);
     }
+  };
+
+  const toggleProvider = () => {
+      setCurrentProvider(prev => prev === 'gemini' ? 'elevenlabs' : 'gemini');
   };
 
   // Proxy Handlers (Placeholder for future logic)
@@ -546,26 +551,30 @@ function App() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
-            {/* Provider Toggle Button */}
-            <div className={`flex items-center p-1 rounded-lg border ${bgColor.isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-slate-700'}`}>
-               <button
-                  onClick={() => setCurrentProvider('gemini')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${currentProvider === 'gemini' 
-                    ? 'bg-white text-brand-600 shadow-sm' 
-                    : 'text-slate-400 hover:text-slate-500'}`}
-               >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Gemini</span>
-               </button>
-               <button
-                  onClick={() => setCurrentProvider('elevenlabs')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${currentProvider === 'elevenlabs' 
-                    ? 'bg-indigo-600 text-white shadow-sm' 
-                    : 'text-slate-400 hover:text-slate-500'}`}
-               >
-                  <Activity className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">ElevenLabs</span>
-               </button>
+            {/* New Toggle Button Component */}
+            <div 
+              onClick={toggleProvider}
+              className={`relative h-9 w-40 sm:w-48 rounded-lg cursor-pointer border p-0.5 flex items-center transition-all ${bgColor.isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-slate-700'}`}
+            >
+                {/* Sliding Pill */}
+                <div 
+                  className={`absolute top-0.5 bottom-0.5 w-[calc(50%-2px)] rounded-md shadow-sm transition-all duration-300 ease-out transform ${
+                    currentProvider === 'gemini' 
+                      ? 'translate-x-0 bg-white' 
+                      : 'translate-x-full bg-indigo-600'
+                  }`}
+                ></div>
+                
+                {/* Text Labels */}
+                <div className={`relative z-10 w-1/2 flex items-center justify-center gap-1.5 text-xs font-bold uppercase transition-colors duration-300 ${currentProvider === 'gemini' ? 'text-brand-600' : 'text-slate-500 hover:text-slate-400'}`}>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Gemini</span>
+                </div>
+                <div className={`relative z-10 w-1/2 flex items-center justify-center gap-1.5 text-xs font-bold uppercase transition-colors duration-300 ${currentProvider === 'elevenlabs' ? 'text-white' : 'text-slate-500 hover:text-slate-400'}`}>
+                    <Activity className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">ElevenLabs</span>
+                    <span className="sm:hidden">11Labs</span>
+                </div>
             </div>
 
             <div className="w-px h-6 bg-slate-700/50 mx-1 hidden sm:block"></div>

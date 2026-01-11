@@ -13,7 +13,8 @@ export interface TTSConfig {
   audioSample?: string;
   audioMimeType?: string;
   isPreview?: boolean; 
-  elevenLabsModel?: string; 
+  elevenLabsModel?: string;
+  geminiModel?: string; // New field for Gemini Model
   // Callback for streaming segments
   onSegmentGenerated?: (segment: AudioSegment) => void;
 }
@@ -46,6 +47,7 @@ export interface SavedScript {
   instructions: string;
   timestamp: number;
   elevenLabsModel?: string; 
+  geminiModel?: string;
 }
 
 export enum GenerationStatus {

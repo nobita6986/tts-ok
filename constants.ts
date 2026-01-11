@@ -12,6 +12,19 @@ export const PROVIDERS = [
   { id: 'elevenlabs', name: 'ElevenLabs', icon: 'Activity' }
 ];
 
+export const GEMINI_MODELS = [
+  {
+    id: 'gemini-2.5-flash-preview-tts',
+    name: 'Gemini 2.5 Flash (Nhanh)',
+    description: 'Tối ưu tốc độ, độ trễ thấp, chi phí tiết kiệm. Phù hợp hội thoại thời gian thực.'
+  },
+  {
+    id: 'gemini-2.5-pro-preview-tts',
+    name: 'Gemini 2.5 Pro (Chất lượng cao)',
+    description: 'Chất lượng âm thanh cao nhất, độ biểu cảm tốt, phù hợp audiobook, thuyết minh.'
+  }
+];
+
 export const ELEVENLABS_MODELS = [
   { 
     id: 'eleven_v3', 
@@ -76,15 +89,18 @@ export const VOICES: VoiceOption[] = [
   { id: "Puck_GB", name: "Arthur (Puck)", gender: "Nam", traits: "British, Formal", provider: "gemini", lang: "en-GB" },
   { id: "Kore_GB", name: "Emma (Kore)", gender: "Nữ", traits: "British, Gentle", provider: "gemini", lang: "en-GB" },
   { id: "Fenrir_GB", name: "Harry (Fenrir)", gender: "Nam", traits: "British, Energetic", provider: "gemini", lang: "en-GB" },
+  { id: "Aoede_GB", name: "Sophie (Aoede)", gender: "Nữ", traits: "British, Professional", provider: "gemini", lang: "en-GB" },
 
   // --- GEMINI (JAPANESE - Mapped) ---
   { id: "Kore_JP", name: "Sakura (Kore)", gender: "Nữ", traits: "Soft, Anime style", provider: "gemini", lang: "ja-JP" },
   { id: "Charon_JP", name: "Kenji (Charon)", gender: "Nam", traits: "Deep, Samurai", provider: "gemini", lang: "ja-JP" },
   { id: "Zephyr_JP", name: "Hina (Zephyr)", gender: "Nữ", traits: "High pitch, Cute", provider: "gemini", lang: "ja-JP" },
+  { id: "Puck_JP", name: "Hiro (Puck)", gender: "Nam", traits: "Natural, Young", provider: "gemini", lang: "ja-JP" },
 
   // --- GEMINI (KOREAN - Mapped) ---
   { id: "Aoede_KR", name: "Ji-woo (Aoede)", gender: "Nữ", traits: "Professional, News", provider: "gemini", lang: "ko-KR" },
   { id: "Puck_KR", name: "Min-ho (Puck)", gender: "Nam", traits: "Casual, Drama", provider: "gemini", lang: "ko-KR" },
+  { id: "Zephyr_KR", name: "Soo-jin (Zephyr)", gender: "Nữ", traits: "Sweet, K-Pop", provider: "gemini", lang: "ko-KR" },
 
   // --- ELEVENLABS VOICES (Updated to 'multi' for better filtering) ---
   
