@@ -4,7 +4,7 @@ import { TTSConfig, TTSProvider, SavedScript } from '../types';
 import { VOICES, TONES, STYLES, LANGUAGES, PROVIDERS, ELEVENLABS_MODELS, VoiceOption } from '../constants';
 import { generateSpeechGemini } from '../services/geminiService';
 import { generateSpeechElevenLabs, createVoiceElevenLabs, getActiveElevenLabsKey } from '../services/elevenLabsService';
-import { Sparkles, Edit3, ChevronRight, Sliders, MessageSquare, Activity, Fingerprint, Play, Pause, Loader2, Zap, HelpCircle, Globe, Info, Upload, CheckCircle2, AlertTriangle, X, ArrowRight } from 'lucide-react';
+import { Sparkles, Edit3, ChevronRight, Sliders, MessageSquare, Activity, Fingerprint, Play, Pause, Loader2, Zap, HelpCircle, Globe, Info, Upload, CheckCircle2, AlertTriangle, X, ArrowRight, Save } from 'lucide-react';
 
 interface ScriptFormProps {
   onGenerateAudio: (config: TTSConfig) => void;
@@ -66,7 +66,15 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
   const [manualVoiceId, setManualVoiceId] = useState(""); // For manual entry in clone form
   
   // Store newly created voices in session state so they appear in dropdown
-  const [createdVoices, setCreatedVoices] = useState<VoiceOption[]>([]);
+  // Load from LocalStorage on init
+  const [createdVoices, setCreatedVoices] = useState<VoiceOption[]>(() => {
+    try {
+        const saved = localStorage.getItem('ELEVENLABS_CUSTOM_VOICES');
+        return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+        return [];
+    }
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Preview Audio State
@@ -87,17 +95,20 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
           setElevenLabsModel(loadedScript.elevenLabsModel);
       }
       
-      // Handle Voice ID
-      const voiceExists = VOICES.some(v => v.id === loadedScript.voice);
+      // Handle Voice ID logic considering custom voices
+      const allCurrentVoices = [...VOICES, ...createdVoices];
+      const voiceExists = allCurrentVoices.some(v => v.id === loadedScript.voice);
+      
       if (voiceExists) {
         setVoice(loadedScript.voice);
         setCustomVoiceId("");
       } else if (loadedScript.provider === 'elevenlabs') {
+        // Only set to custom_input if it's truly not in our list (even custom list)
         setVoice('custom_input');
         setCustomVoiceId(loadedScript.voice);
       }
     }
-  }, [loadedScript]);
+  }, [loadedScript, createdVoices]);
 
   // Try to autofill clone key if available from settings (only strictly if user wants, but here we keep it manual for safety/clarity as per design)
   useEffect(() => {
@@ -236,7 +247,7 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
     }
   };
 
-  // --- CLONE HANDLERS ---
+  // --- CLONE & CUSTOM VOICE HANDLERS ---
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files && e.target.files.length > 0) {
           setCloneFile(e.target.files[0]);
@@ -257,25 +268,27 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
           
           alert(`Clone thành công! Giọng đã được thêm vào thư viện ElevenLabs của bạn.\nVoice ID: ${newVoiceId}`);
           
-          // Add to local session list so user can select it immediately without manual ID entry
+          // Add to local storage so user can select it immediately without manual ID entry
           const newVoiceOption: VoiceOption = {
             id: newVoiceId,
-            name: `(Clone) ${cloneName}`,
+            name: cloneName, // Use user provided name
             gender: "Custom",
-            traits: "Cloned",
+            traits: "Clone",
             provider: "elevenlabs",
             lang: "multi" // Assume multilingual for cloned voices
           };
           
-          setCreatedVoices(prev => [newVoiceOption, ...prev]);
+          const updatedVoices = [newVoiceOption, ...createdVoices.filter(v => v.id !== newVoiceId)];
+          setCreatedVoices(updatedVoices);
+          localStorage.setItem('ELEVENLABS_CUSTOM_VOICES', JSON.stringify(updatedVoices));
           
           // Auto select the new voice
           setVoice(newVoiceId);
-          setCustomVoiceId(""); // Clear custom ID field as we are now selecting from list
+          setCustomVoiceId(""); 
           setShowCloneForm(false);
           setCloneName("");
           setCloneFile(null);
-          setCloneApiKey(""); // Clear key for security
+          setCloneApiKey(""); 
 
       } catch (error: any) {
           alert(`Lỗi clone giọng: ${error.message}`);
@@ -286,10 +299,31 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
 
   const handleUseManualVoiceId = () => {
       if (!manualVoiceId.trim()) return;
-      setVoice("custom_input");
-      setCustomVoiceId(manualVoiceId.trim());
-      setShowCloneForm(false); // Close modal
+
+      // Logic to save manual voice with a name to library
+      // If user entered a name in "Tên giọng mới", use it. Otherwise generate one.
+      const nameToSave = cloneName.trim() || `Custom Voice (${manualVoiceId.slice(0, 4)}...)`;
+      
+      const newVoiceOption: VoiceOption = {
+          id: manualVoiceId.trim(),
+          name: nameToSave,
+          gender: "Custom",
+          traits: "Imported",
+          provider: "elevenlabs",
+          lang: "multi"
+      };
+
+      // Avoid duplicates
+      const updatedVoices = [newVoiceOption, ...createdVoices.filter(v => v.id !== newVoiceOption.id)];
+      setCreatedVoices(updatedVoices);
+      localStorage.setItem('ELEVENLABS_CUSTOM_VOICES', JSON.stringify(updatedVoices));
+
+      // Select it
+      setVoice(newVoiceOption.id);
+      setCustomVoiceId("");
+      setShowCloneForm(false);
       setManualVoiceId("");
+      setCloneName("");
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -494,7 +528,7 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
                               type="text" 
                               value={cloneName}
                               onChange={(e) => setCloneName(e.target.value)}
-                              placeholder="Đặt tên cho giọng clone..."
+                              placeholder="Đặt tên cho giọng clone (hoặc tên gợi nhớ cho ID)..."
                               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 outline-none"
                           />
                       </div>
@@ -576,11 +610,13 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
                                 type="button"
                                 onClick={handleUseManualVoiceId}
                                 disabled={!manualVoiceId.trim()}
-                                className="px-3 py-2 bg-slate-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="px-3 py-2 bg-slate-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                title="Lưu ID và Tên vào danh sách để dùng sau"
                               >
-                                  Sử dụng
+                                  <Save className="w-3.5 h-3.5" /> Sử dụng
                               </button>
                           </div>
+                          <p className="text-[9px] text-slate-500 italic mt-1">Gợi ý: Nhập "Tên giọng mới" ở ô trên cùng để dễ nhớ khi lưu ID này.</p>
                       </div>
                   </div>
               )}
