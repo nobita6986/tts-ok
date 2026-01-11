@@ -88,7 +88,7 @@ export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ aud
 
   try {
     const modelId = config.elevenLabsModel || "eleven_multilingual_v2";
-    // Set explicit limit of 5000 for ElevenLabs
+    // Set explicit limit of 5000 for ElevenLabs to stay within typical safe limits
     const textChunks = splitTextIntoChunks(config.text, 5000);
     const audioBlobs: Blob[] = [];
 
@@ -96,6 +96,33 @@ export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ aud
     for (let i = 0; i < textChunks.length; i++) {
         const chunk = textChunks[i];
         
+        // --- CONTEXTUAL LINKING ---
+        // We pass previous and next text to help ElevenLabs maintain prosody (flow/intonation)
+        // taking the last ~500 chars of prev chunk and first ~500 chars of next chunk.
+        
+        const previousText = i > 0 
+            ? textChunks[i - 1].slice(-500).trim() 
+            : undefined;
+            
+        const nextText = i < textChunks.length - 1 
+            ? textChunks[i + 1].slice(0, 500).trim() 
+            : undefined;
+
+        // Build Request Body
+        const requestBody: any = {
+            text: chunk,
+            model_id: modelId,
+            voice_settings: {
+                stability: 0.5,
+                similarity_boost: 0.75,
+                style: config.style !== 'Tiêu chuẩn' ? 0.5 : 0.0, 
+            }
+        };
+
+        // Inject context if available
+        if (previousText) requestBody.previous_text = previousText;
+        if (nextText) requestBody.next_text = nextText;
+
         const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${config.voice}`, {
             method: 'POST',
             headers: {
@@ -103,15 +130,7 @@ export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ aud
                 'xi-api-key': apiKey,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                text: chunk,
-                model_id: modelId,
-                voice_settings: {
-                    stability: 0.5,
-                    similarity_boost: 0.75,
-                    style: config.style !== 'Tiêu chuẩn' ? 0.5 : 0.0, 
-                }
-            })
+            body: JSON.stringify(requestBody)
         });
 
         if (!response.ok) {

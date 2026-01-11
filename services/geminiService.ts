@@ -247,7 +247,8 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
 
           // Update context
           const words = chunk.trim().split(/\s+/);
-          const contextLength = Math.min(words.length, 20);
+          // Increase context to 50 words for better flow capture
+          const contextLength = Math.min(words.length, 50);
           previousContextSentence = words.slice(-contextLength).join(" ");
 
       } catch (error: any) {
