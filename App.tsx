@@ -593,6 +593,16 @@ function App() {
                )}
             </button>
 
+            {/* Proxy Button */}
+            <button 
+              onClick={() => setShowProxyModal(true)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all text-xs font-semibold ${bgColor.isLight ? 'border-slate-300 bg-white/50 hover:bg-white text-slate-700' : 'border-white/10 bg-white/5 hover:bg-white/10 text-slate-300'}`}
+              title="Cấu hình Proxy (ElevenLabs)"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Proxy</span>
+            </button>
+
             {/* Config Button */}
             <button 
               onClick={() => setShowApiModal(true)}
