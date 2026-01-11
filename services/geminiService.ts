@@ -45,12 +45,13 @@ export const getActiveApiKey = (): string | null => {
 
 // --- UTILS: Text Splitting ---
 
-// QUALITY ADJUSTMENT:
-// Previously set to 20,000 chars (~4000 words). However, generating >5 mins of audio 
-// in a single pass causes Gemini TTS to degrade (static/robotic artifacts) at the end.
-// Reduced to 4500 chars (~3-4 mins) to ensure "Fresh" high-quality audio for every segment.
-// The segments are concatenated seamlessly via Raw PCM, so the user still gets one long file.
-const DEFAULT_CHUNK_LENGTH = 4500; 
+// QUALITY ADJUSTMENT V2:
+// Issue: Users reported "distortion" and "unstable pitch" (trầm bổng không đều) with long texts.
+// Cause: Long generation windows cause model drift.
+// Fix: Reduced limit to 1500 chars (approx 45s - 1min audio). 
+// This forces frequent "refreshes" of the audio generation, keeping it high quality.
+// The prompt will ensure consistency between these smaller chunks.
+const DEFAULT_CHUNK_LENGTH = 1500; 
 
 export const splitTextIntoChunks = (text: string, maxLength: number = DEFAULT_CHUNK_LENGTH): string[] => {
   if (!text) return [];
@@ -75,16 +76,12 @@ export const splitTextIntoChunks = (text: string, maxLength: number = DEFAULT_CH
     if (!para) continue;
 
     // Logic 1: Priority Split by Chapter/Section
-    // If we hit a new chapter header and we have accumulated audio, push current buffer now
-    // to keep the new chapter start fresh at the beginning of a file.
     if (currentChunk.length > 0 && chapterRegex.test(para)) {
         chunks.push(currentChunk);
         currentChunk = "";
     }
 
     // Logic 2: Accumulate Paragraphs
-    // Check if adding this paragraph exceeds the limit
-    // +2 accounts for the double newline we might add
     if (currentChunk.length + para.length + 2 <= maxLength) {
         currentChunk += (currentChunk ? "\n\n" : "") + para;
     } else {
@@ -98,13 +95,9 @@ export const splitTextIntoChunks = (text: string, maxLength: number = DEFAULT_CH
 
         // 2. Handle the current paragraph
         if (para.length <= maxLength) {
-            // If paragraph fits in a new chunk by itself, set it
             currentChunk = para;
         } else {
             // Logic 3: Split Massive Paragraphs (Sentence Level)
-            // Paragraph is larger than maxLength. We must split it by sentences.
-            
-            // Regex to match sentences: ends with . ! ? followed by space or end of string.
             const sentences = para.match(/[^.!?]+[.!?]+[\])'"]*|.+/g) || [para];
             
             for (let sentence of sentences) {
@@ -117,15 +110,12 @@ export const splitTextIntoChunks = (text: string, maxLength: number = DEFAULT_CH
                     if (currentChunk) chunks.push(currentChunk);
                     
                     // Logic 4: Hard Split (Word Level fallback)
-                    // If a single sentence is still larger than limit (very rare)
                     if (sentence.length > maxLength) {
                         let temp = sentence;
                         while (temp.length > 0) {
                             let cutLimit = Math.min(temp.length, maxLength);
-                            // Try to cut at a space near the limit
                             let cutIndex = temp.lastIndexOf(' ', cutLimit);
                             
-                            // If no space found in the last 20% of the chunk, hard cut
                             if (cutIndex === -1 || cutIndex < cutLimit * 0.8) {
                                 cutIndex = cutLimit; 
                             }
@@ -158,35 +148,59 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
   const rawVoiceName = config.voice.split('_')[0];
   const langName = LANGUAGES.find(l => l.code === config.language)?.name || "Tiếng Việt";
   
-  // Use adjusted limit to maintain quality
   const textChunks = splitTextIntoChunks(config.text);
   const audioParts: Uint8Array[] = [];
 
   // --- TTS Generation Loop ---
   const ttsModel = "gemini-2.5-flash-preview-tts";
-  const instructions: string[] = [];
-  instructions.push(`Language: ${langName}`);
-
-  // Standard params
-  if (config.tone && config.tone !== 'Tiêu chuẩn') instructions.push(`${config.tone} tone`);
-  if (config.style && config.style !== 'Tiêu chuẩn') instructions.push(`${config.style} style`);
   
-  // Add explicit stability instruction
-  instructions.push("Speak clearly, maintain consistent volume and speed, avoid static or distortion");
+  // Build Strict Style Instructions
+  const instructionKeywords: string[] = [];
+  
+  // 1. Core Tone
+  if (config.tone && config.tone !== 'Tiêu chuẩn') {
+    instructionKeywords.push(config.tone);
+  } else {
+    // Default strict tone to prevent drifting
+    instructionKeywords.push("Professional Narrator");
+    instructionKeywords.push("Neutral Tone");
+  }
 
-  if (config.instructions) instructions.push(config.instructions.trim());
+  // 2. Style
+  if (config.style && config.style !== 'Tiêu chuẩn') {
+    instructionKeywords.push(config.style);
+  }
 
-  // Use rawVoiceName directly
+  // 3. User Custom Instructions
+  if (config.instructions) {
+    instructionKeywords.push(config.instructions.trim());
+  }
+
+  // 4. Force Stability (CRITICAL FIX)
+  // These constraints tell the model to lock its pitch and speed.
+  const stabilityConstraints = [
+    "Maintain consistent volume and speaking rate",
+    "Keep pitch stable",
+    "No robotic artifacts",
+    "High fidelity audio"
+  ];
+
   const targetVoice = rawVoiceName;
 
   for (let i = 0; i < textChunks.length; i++) {
       const chunk = textChunks[i];
       try {
-          // More structured prompt to force consistency
+          // PROMPT ENGINEERING FOR STABILITY
+          // We wrap the text in a structured command to force the model to behave like a standard TTS engine
+          // rather than a creative actor (which causes the pitch variance).
           const textToSpeech = `
-            Directly read the following text in ${langName}.
-            Style Instructions: ${instructions.join(', ')}.
-            Text: "${chunk}"
+            Task: Read the text below aloud.
+            Language: ${langName}
+            Voice Persona: ${instructionKeywords.join(', ')}
+            Technical Constraints: ${stabilityConstraints.join(', ')}.
+            
+            Text to Read:
+            "${chunk}"
           `.trim();
 
           const ttsResponse = await ai.models.generateContent({
@@ -205,7 +219,6 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
               const bytes = base64ToUint8Array(base64);
               audioParts.push(bytes);
 
-              // *** STREAMING: Emit segment immediately ***
               if (config.onSegmentGenerated) {
                   const segmentUrl = audioBytesToWavBlobURL(bytes);
                   const segment: AudioSegment = {
@@ -218,11 +231,9 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
           }
       } catch (error: any) {
           console.error(`Lỗi tạo chunk ${i}:`, error);
-          // Continue to next chunk even if one fails
       }
   }
 
-  // Final Output Construction
   if (audioParts.length === 0) throw new Error("Không có dữ liệu âm thanh nào được tạo.");
 
   // Merge Audio
@@ -234,7 +245,6 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
     offset += part.length;
   }
 
-  // Create WAV Blob
   const audioUrl = audioBytesToWavBlobURL(mergedAudio);
 
   return { audioUrl };
@@ -253,7 +263,6 @@ function base64ToUint8Array(base64: string): Uint8Array {
 }
 
 function audioBytesToWavBlobURL(bytes: Uint8Array): string {
-  // Gemini returns PCM data (typically 24kHz, 1 channel, 16 bit based on SDK docs/behavior)
   const sampleRate = 24000; 
   const numChannels = 1;
   const bitsPerSample = 16;
