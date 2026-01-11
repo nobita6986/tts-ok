@@ -4,7 +4,7 @@ import { ScriptForm } from './components/ScriptForm';
 import { ScriptOutput } from './components/ScriptOutput';
 import { generateSpeechGemini, getStoredApiKeys, setStoredApiKeys } from './services/geminiService';
 import { generateSpeechElevenLabs, getStoredElevenLabsKeys, setStoredElevenLabsKeys } from './services/elevenLabsService';
-import { TTSConfig, GeneratedAudio, GenerationStatus, SavedScript, AudioSegment } from './types';
+import { TTSConfig, GeneratedAudio, GenerationStatus, SavedScript, AudioSegment, TTSProvider } from './types';
 import { APP_BACKGROUNDS } from './constants';
 import { Mic, Sparkles, Volume2, Palette, Settings, Key, X, ExternalLink, ShieldCheck, AlertCircle, Activity, Info, BookOpen, History, Trash2, ArrowRightCircle, Facebook, Shield, Globe, Save, Server } from 'lucide-react';
 
@@ -13,6 +13,9 @@ function App() {
   const [result, setResult] = useState<GeneratedAudio | null>(null);
   const [error, setError] = useState<string | null>(null);
   
+  // Lifted Provider State
+  const [currentProvider, setCurrentProvider] = useState<TTSProvider>('gemini');
+
   // Random background on initialization
   const [bgColor, setBgColor] = useState(() => {
     const randomIndex = Math.floor(Math.random() * APP_BACKGROUNDS.length);
@@ -65,6 +68,13 @@ function App() {
       setError("Bộ nhớ trình duyệt đã đầy. Không thể lưu thêm kịch bản vào thư viện.");
     }
   }, [library]);
+  
+  // Load script handler
+  const loadScript = (script: SavedScript) => {
+      setSelectedScript(script);
+      setCurrentProvider(script.provider); // Update provider when loading script
+      setShowLibraryModal(false);
+  };
 
   const handleGenerateAudio = async (config: TTSConfig) => {
     // Validation based on provider
@@ -173,11 +183,6 @@ function App() {
     if (window.confirm("Bạn có chắc chắn muốn xóa toàn bộ kịch bản đã lưu? Hành động này không thể hoàn tác.")) {
       setLibrary([]);
     }
-  };
-
-  const loadScript = (script: SavedScript) => {
-      setSelectedScript(script);
-      setShowLibraryModal(false);
   };
 
   // Proxy Handlers (Placeholder for future logic)
@@ -392,8 +397,8 @@ function App() {
                     <h3 className="text-lg font-semibold text-brand-300 uppercase tracking-wide border-b border-slate-800 pb-2">🛠️ Cách sử dụng</h3>
                     <ol className="space-y-3 text-sm text-slate-300 list-decimal list-inside bg-slate-950 p-6 rounded-xl border border-slate-800">
                         <li>Vào mục <strong>Cấu hình API</strong> để nhập Key (Gemini hoặc ElevenLabs).</li>
-                        <li>Chọn <strong>Nhà cung cấp</strong> (Gemini/ElevenLabs) và <strong>Ngôn ngữ</strong>.</li>
-                        <li>Chọn <strong>Giọng đọc</strong> từ danh sách có sẵn.</li>
+                        <li>Chọn <strong>Nhà cung cấp</strong> ở thanh menu phía trên (Gemini hoặc ElevenLabs).</li>
+                        <li>Chọn <strong>Ngôn ngữ</strong> và <strong>Giọng đọc</strong> từ danh sách.</li>
                         <li>Nhập văn bản, tùy chỉnh <strong>Tông giọng (Tone)</strong> và <strong>Phong cách (Style)</strong>.</li>
                         <li>Nhấn <strong>Tạo</strong> và chờ kết quả. Kịch bản sẽ tự động lưu vào <strong>Thư viện</strong>.</li>
                     </ol>
@@ -541,6 +546,30 @@ function App() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
+            {/* Provider Toggle Button */}
+            <div className={`flex items-center p-1 rounded-lg border ${bgColor.isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-slate-700'}`}>
+               <button
+                  onClick={() => setCurrentProvider('gemini')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${currentProvider === 'gemini' 
+                    ? 'bg-white text-brand-600 shadow-sm' 
+                    : 'text-slate-400 hover:text-slate-500'}`}
+               >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Gemini</span>
+               </button>
+               <button
+                  onClick={() => setCurrentProvider('elevenlabs')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${currentProvider === 'elevenlabs' 
+                    ? 'bg-indigo-600 text-white shadow-sm' 
+                    : 'text-slate-400 hover:text-slate-500'}`}
+               >
+                  <Activity className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">ElevenLabs</span>
+               </button>
+            </div>
+
+            <div className="w-px h-6 bg-slate-700/50 mx-1 hidden sm:block"></div>
+
             {/* Guide Button */}
             <button
                onClick={() => setShowGuideModal(true)}
@@ -574,16 +603,7 @@ function App() {
               }`}
             >
               <Settings className="w-3.5 h-3.5" />
-              <span>Cấu hình API</span>
-            </button>
-
-            {/* Proxy Button */}
-            <button 
-              onClick={() => setShowProxyModal(true)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all text-xs font-semibold ${bgColor.isLight ? 'border-slate-300 bg-slate-200 hover:bg-slate-300 text-slate-600' : 'border-white/10 bg-slate-500/10 hover:bg-slate-500/20 text-slate-400 hover:text-slate-300'}`}
-            >
-              <Shield className="w-3.5 h-3.5" />
-              <span>Cấu hình Proxy</span>
+              <span className="hidden sm:inline">Cấu hình API</span>
             </button>
           </div>
         </div>
@@ -612,6 +632,7 @@ function App() {
           {/* Left Column: Input Form */}
           <div className={`lg:col-span-5 flex flex-col transition-all duration-500 ${status === GenerationStatus.SUCCESS || (result && result.segments.length > 0) ? 'hidden xl:flex' : ''}`}>
                <ScriptForm 
+                 selectedProvider={currentProvider}
                  onGenerateAudio={handleGenerateAudio}
                  isGenerating={status === GenerationStatus.GENERATING}
                  loadedScript={selectedScript}
@@ -627,7 +648,7 @@ function App() {
                 isGenerating={status === GenerationStatus.GENERATING}
               />
             ) : (
-               <div className={`h-full flex flex-col items-center justify-center pb-32 min-h-[400px] border-2 border-dashed rounded-2xl p-8 text-center transition-opacity duration-300 ${status === GenerationStatus.GENERATING ? 'opacity-50' : 'opacity-100'} ${bgColor.isLight ? 'border-slate-300 bg-white/40' : 'border-slate-800 bg-slate-900/30'}`}>
+               <div className={`h-full flex flex-col items-center justify-start pt-32 pb-32 min-h-[500px] border-2 border-dashed rounded-2xl p-8 text-center transition-opacity duration-300 ${status === GenerationStatus.GENERATING ? 'opacity-50' : 'opacity-100'} ${bgColor.isLight ? 'border-slate-300 bg-white/40' : 'border-slate-800 bg-slate-900/30'}`}>
                  {status === GenerationStatus.GENERATING ? (
                     <div className="animate-pulse flex flex-col items-center">
                        <div className="w-24 h-24 bg-brand-500/10 rounded-full flex items-center justify-center mb-6 relative">
@@ -644,7 +665,7 @@ function App() {
                     </div>
                     <h3 className={`text-2xl font-medium mb-3 ${bgColor.isLight ? 'text-slate-800' : 'text-white'}`}>Studio Giọng nói Chuyên nghiệp</h3>
                     <p className={`max-w-md leading-relaxed ${bgColor.isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-                      Chọn Nhà cung cấp (Gemini/ElevenLabs), ngôn ngữ, giọng đọc và nhập văn bản để bắt đầu.
+                      Chọn Nhà cung cấp ở trên (Gemini/ElevenLabs), ngôn ngữ, giọng đọc và nhập văn bản để bắt đầu.
                     </p>
                     {(!hasGemini && !hasElevenLabs) && (
                       <button 

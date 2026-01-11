@@ -190,7 +190,7 @@ export const VOICES: VoiceOption[] = [
 
   // -- UK English (Can also speak VN via Multilingual Model) --
   { 
-    id: "Ind3XpXQ7K0yY1s4a1kG", 
+    id: "JBFqnCBsd6RMkjVDRZzb", // Updated Correct ID
     name: "George", 
     gender: "Nam", 
     traits: "Anh, Ấm áp, Tường thuật", 
@@ -206,7 +206,7 @@ export const VOICES: VoiceOption[] = [
     lang: "multi" 
   },
   { 
-    id: "zCAUftsz0xNEyrj0h7OV", 
+    id: "ODq5zmih8GrVes37Dizj", // Updated Correct ID
     name: "Patrick", 
     gender: "Nam", 
     traits: "Anh, Shouty, Hype", 
