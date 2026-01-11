@@ -12,6 +12,10 @@ export const PROVIDERS = [
   { id: 'elevenlabs', name: 'ElevenLabs', icon: 'Activity' }
 ];
 
+// Threshold to automatically split requests into separate library entries
+// 2500 is safe for ElevenLabs and keeps Gemini generation snappy
+export const AUTO_SPLIT_THRESHOLD = 2500; 
+
 export const GEMINI_MODELS = [
   {
     id: 'gemini-2.5-flash-preview-tts',

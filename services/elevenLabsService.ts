@@ -64,7 +64,7 @@ const getFriendlyElevenLabsError = (status: number, errorData: any): string => {
 
   // 5. Validation
   if (status === 400) {
-      if (rawMessage.includes("text")) return "Văn bản đầu vào không hợp lệ hoặc quá dài.";
+      if (rawMessage.includes("text")) return "Văn bản đầu vào không hợp lệ hoặc quá dài (Vui lòng thử chia nhỏ hơn).";
       if (rawMessage.includes("files")) return "File âm thanh không hợp lệ hoặc quá ngắn/dài.";
       return "Yêu cầu không hợp lệ. Vui lòng kiểm tra lại cấu hình giọng đọc.";
   }
@@ -119,7 +119,9 @@ export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ aud
 
   try {
     const modelId = config.elevenLabsModel || "eleven_multilingual_v2";
-    const textChunks = splitTextIntoChunks(config.text, 5000);
+    
+    // REDUCED CHUNK SIZE TO 2500 TO PREVENT "TEXT TOO LONG" ERRORS
+    const textChunks = splitTextIntoChunks(config.text, 2500);
     const audioBlobs: Blob[] = [];
 
     // Round-Robin Index Initialization

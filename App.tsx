@@ -2,14 +2,16 @@
 import React, { useState, useEffect } from 'react';
 import { ScriptForm } from './components/ScriptForm';
 import { ScriptOutput } from './components/ScriptOutput';
-import { generateSpeechGemini, getStoredApiKeys, setStoredApiKeys } from './services/geminiService';
+import { generateSpeechGemini, getStoredApiKeys, setStoredApiKeys, splitTextIntoChunks } from './services/geminiService';
 import { generateSpeechElevenLabs, getStoredElevenLabsKeys, setStoredElevenLabsKeys } from './services/elevenLabsService';
 import { TTSConfig, GeneratedAudio, GenerationStatus, SavedScript, AudioSegment, TTSProvider } from './types';
-import { APP_BACKGROUNDS } from './constants';
-import { Mic, Sparkles, Volume2, Palette, Settings, Key, X, ExternalLink, ShieldCheck, AlertCircle, Activity, Info, BookOpen, History, Trash2, ArrowRightCircle, Facebook, Shield, Globe, Save, Server } from 'lucide-react';
+import { APP_BACKGROUNDS, AUTO_SPLIT_THRESHOLD } from './constants';
+import { Mic, Sparkles, Volume2, Palette, Settings, Key, X, ExternalLink, ShieldCheck, AlertCircle, Activity, Info, BookOpen, History, Trash2, ArrowRightCircle, Facebook, Shield, Globe, Save, Server, Fingerprint, Zap } from 'lucide-react';
 
 function App() {
   const [status, setStatus] = useState<GenerationStatus>(GenerationStatus.IDLE);
+  // Add detailed status message
+  const [statusMessage, setStatusMessage] = useState<string>("");
   const [result, setResult] = useState<GeneratedAudio | null>(null);
   const [error, setError] = useState<string | null>(null);
   
@@ -91,69 +93,107 @@ function App() {
 
     setStatus(GenerationStatus.GENERATING);
     setError(null);
-    
-    // Initialize result with empty segments
-    const initialResult: GeneratedAudio = {
-      segments: [],
-      text: config.text,
-      voice: config.voice,
-      provider: config.provider,
-      language: config.language,
-      timestamp: Date.now()
-    };
-    setResult(initialResult);
+    setStatusMessage("Đang khởi tạo...");
 
-    // Callback to update segments in real-time
-    config.onSegmentGenerated = (segment: AudioSegment) => {
-        setResult(prev => {
-            if (!prev) return initialResult;
-            return {
-                ...prev,
-                segments: [...prev.segments, segment]
-            };
-        });
-    };
-    
+    // Split text into sessions if too long
+    const sessionChunks = splitTextIntoChunks(config.text, AUTO_SPLIT_THRESHOLD);
+    const isMultiPart = sessionChunks.length > 1;
+
     try {
-      let finalData;
-      if (config.provider === 'elevenlabs') {
-        finalData = await generateSpeechElevenLabs(config);
-      } else {
-        finalData = await generateSpeechGemini(config);
-      }
+        // Iterate through each session chunk
+        for (let i = 0; i < sessionChunks.length; i++) {
+            const chunkText = sessionChunks[i];
+            
+            // Update UI Message
+            if (isMultiPart) {
+                setStatusMessage(`Đang xử lý Phần ${i + 1} / ${sessionChunks.length}... (Tự động chia nhỏ văn bản dài)`);
+            } else {
+                setStatusMessage("Đang tổng hợp âm thanh...");
+            }
 
-      // Update with final full audio URL
-      setResult(prev => {
-          if (!prev) return null;
-          return {
-              ...prev,
-              fullAudioUrl: finalData.audioUrl
-          };
-      });
-      setStatus(GenerationStatus.SUCCESS);
+            // Prepare chunk config
+            const chunkConfig: TTSConfig = {
+                ...config,
+                text: chunkText,
+            };
 
-      // Auto save to library
-      const newScript: SavedScript = {
-          id: Date.now().toString(),
-          text: config.text,
-          voice: config.voice,
-          provider: config.provider,
-          language: config.language,
-          tone: config.tone || "Tiêu chuẩn",
-          style: config.style || "Tiêu chuẩn",
-          instructions: config.instructions || "",
-          timestamp: Date.now(),
-          elevenLabsModel: config.elevenLabsModel,
-          geminiModel: config.geminiModel
-      };
-      setLibrary(prev => [newScript, ...prev]);
+            // Initialize result for this specific chunk so UI shows empty state for it
+            const initialResult: GeneratedAudio = {
+                segments: [],
+                text: chunkText,
+                voice: config.voice,
+                provider: config.provider,
+                language: config.language,
+                timestamp: Date.now()
+            };
+            setResult(initialResult);
+
+            // Hook up realtime segment callback
+            chunkConfig.onSegmentGenerated = (segment: AudioSegment) => {
+                setResult(prev => {
+                    if (!prev) return initialResult;
+                    return {
+                        ...prev,
+                        segments: [...prev.segments, segment]
+                    };
+                });
+            };
+
+            // Call API
+            let finalData;
+            if (config.provider === 'elevenlabs') {
+                finalData = await generateSpeechElevenLabs(chunkConfig);
+            } else {
+                finalData = await generateSpeechGemini(chunkConfig);
+            }
+
+            // Update result with full audio
+            setResult(prev => {
+                if (!prev) return null;
+                return {
+                    ...prev,
+                    fullAudioUrl: finalData.audioUrl
+                };
+            });
+
+            // Save to Library (Add part number if multipart)
+            const displayId = isMultiPart ? `${Date.now()}_${i}` : Date.now().toString();
+            const displayText = isMultiPart 
+                ? `${config.text.slice(0, 30)}... (Phần ${i+1}/${sessionChunks.length})`
+                : config.text;
+
+            const newScript: SavedScript = {
+                id: displayId,
+                text: displayText,
+                voice: config.voice,
+                provider: config.provider,
+                language: config.language,
+                tone: config.tone || "Tiêu chuẩn",
+                style: config.style || "Tiêu chuẩn",
+                instructions: config.instructions || "",
+                timestamp: Date.now(),
+                elevenLabsModel: config.elevenLabsModel,
+                geminiModel: config.geminiModel
+            };
+            
+            setLibrary(prev => [newScript, ...prev]);
+
+            // If multipart, give a small delay between requests to be nice to API
+            if (isMultiPart && i < sessionChunks.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        }
+
+        setStatus(GenerationStatus.SUCCESS);
+        setStatusMessage("");
 
     } catch (err: any) {
-      setError(err.message || "Đã xảy ra lỗi khi tạo giọng nói.");
-      setStatus(GenerationStatus.ERROR);
-      if (err.message?.toLowerCase().includes("api key") || err.message?.includes("401")) {
-        setShowApiModal(true);
-      }
+        setError(err.message || "Đã xảy ra lỗi khi tạo giọng nói.");
+        setStatus(GenerationStatus.ERROR);
+        setStatusMessage("");
+        if (err.message?.toLowerCase().includes("api key") || err.message?.includes("401")) {
+            setShowApiModal(true);
+        }
     }
   };
 
@@ -161,6 +201,7 @@ function App() {
     setResult(null);
     setStatus(GenerationStatus.IDLE);
     setError(null);
+    setStatusMessage("");
   };
 
   const saveApiKeys = () => {
@@ -373,41 +414,102 @@ function App() {
                 </h2>
                 <button onClick={() => setShowGuideModal(false)}><X className="w-5 h-5 text-slate-400 hover:text-white" /></button>
               </div>
-              <div className="p-8 overflow-y-auto custom-scrollbar space-y-8">
-                 {/* Strengths */}
-                 <section className="space-y-4">
-                    <h3 className="text-lg font-semibold text-brand-300 uppercase tracking-wide border-b border-slate-800 pb-2">🔥 Điểm mạnh nổi bật</h3>
-                    <div className="grid md:grid-cols-2 gap-4">
-                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                           <div className="flex items-center gap-2 mb-2 text-indigo-400 font-bold"><Activity className="w-4 h-4"/> Đa Luồng API</div>
-                           <p className="text-sm text-slate-400 leading-relaxed">Hỗ trợ nhập nhiều API Key cùng lúc. Hệ thống tự động luân phiên (Round-Robin) để tránh giới hạn request (Quota Limit).</p>
-                        </div>
-                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                           <div className="flex items-center gap-2 mb-2 text-brand-400 font-bold"><Sparkles className="w-4 h-4"/> Gemini 2.5 Flash</div>
-                           <p className="text-sm text-slate-400 leading-relaxed">Sử dụng Gemini 2.5 Flash cho tốc độ TTS cực nhanh, độ trễ thấp và giọng đọc tự nhiên.</p>
-                        </div>
-                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                           <div className="flex items-center gap-2 mb-2 text-emerald-400 font-bold"><Volume2 className="w-4 h-4"/> ElevenLabs Integration</div>
-                           <p className="text-sm text-slate-400 leading-relaxed">Tích hợp ElevenLabs Multilingual v2 cho chất lượng giọng đọc tự nhiên nhất thế giới.</p>
-                        </div>
-                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                           <div className="flex items-center gap-2 mb-2 text-sky-400 font-bold"><Mic className="w-4 h-4"/> Xử lý văn bản dài</div>
-                           <p className="text-sm text-slate-400 leading-relaxed">Tự động chia nhỏ văn bản thông minh theo chương/hồi để tối ưu hóa quá trình tạo giọng nói.</p>
-                        </div>
-                    </div>
-                 </section>
+              
+              <div className="p-6 overflow-y-auto custom-scrollbar space-y-8">
+                {/* 1. Intro Banner */}
+                <div className="bg-gradient-to-r from-slate-800 to-slate-900 p-6 rounded-2xl border border-slate-700 relative overflow-hidden">
+                   <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles className="w-24 h-24" /></div>
+                   <h3 className="text-xl font-bold text-white mb-2">Chào mừng đến với Studio Giọng Nói AI</h3>
+                   <p className="text-slate-300 text-sm">Công cụ chuyển đổi văn bản thành giọng nói (TTS) mạnh mẽ, kết hợp sức mạnh của Google Gemini và ElevenLabs.</p>
+                </div>
 
-                 {/* Usage */}
-                 <section className="space-y-4">
-                    <h3 className="text-lg font-semibold text-brand-300 uppercase tracking-wide border-b border-slate-800 pb-2">🛠️ Cách sử dụng</h3>
-                    <ol className="space-y-3 text-sm text-slate-300 list-decimal list-inside bg-slate-950 p-6 rounded-xl border border-slate-800">
-                        <li>Vào mục <strong>Cấu hình API</strong> để nhập Key (Gemini hoặc ElevenLabs).</li>
-                        <li>Chọn <strong>Nhà cung cấp</strong> ở thanh menu phía trên (Gemini hoặc ElevenLabs).</li>
-                        <li>Chọn <strong>Ngôn ngữ</strong> và <strong>Giọng đọc</strong> từ danh sách.</li>
-                        <li>Nhập văn bản, tùy chỉnh <strong>Tông giọng (Tone)</strong> và <strong>Phong cách (Style)</strong>.</li>
-                        <li>Nhấn <strong>Tạo</strong> và chờ kết quả. Kịch bản sẽ tự động lưu vào <strong>Thư viện</strong>.</li>
-                    </ol>
-                 </section>
+                {/* 2. Feature Grid (Updated) */}
+                <div>
+                   <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Tính năng nổi bật</h3>
+                   <div className="grid md:grid-cols-2 gap-4">
+                      {/* Gemini Pro/Flash */}
+                      <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 hover:border-brand-500/50 transition-colors">
+                          <div className="flex items-center gap-2 mb-2 text-brand-400 font-bold">
+                              <Sparkles className="w-4 h-4" /> Đa Model Gemini
+                          </div>
+                          <p className="text-xs text-slate-400 leading-relaxed">
+                              Tùy chọn giữa <strong>Flash</strong> (Tốc độ cao) và <strong>Pro</strong> (Chất lượng cao, biểu cảm tốt) cho nhu cầu khác nhau.
+                          </p>
+                      </div>
+
+                      {/* Voice Cloning */}
+                      <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 hover:border-indigo-500/50 transition-colors">
+                          <div className="flex items-center gap-2 mb-2 text-indigo-400 font-bold">
+                              <Fingerprint className="w-4 h-4" /> Voice Cloning & ElevenLabs
+                          </div>
+                          <p className="text-xs text-slate-400 leading-relaxed">
+                              Tạo giọng nói giống hệt người thật (Voice Cloning) hoặc sử dụng kho giọng đa ngôn ngữ chất lượng cao của ElevenLabs.
+                          </p>
+                      </div>
+                      
+                      {/* Round Robin */}
+                      <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                          <div className="flex items-center gap-2 mb-2 text-emerald-400 font-bold">
+                              <Activity className="w-4 h-4" /> Quản lý API Thông minh
+                          </div>
+                          <p className="text-xs text-slate-400 leading-relaxed">
+                              Hỗ trợ nhập nhiều API Key. Hệ thống tự động xoay vòng (Round-Robin) để tối ưu hóa giới hạn (Quota) miễn phí.
+                          </p>
+                      </div>
+
+                      {/* Long Text */}
+                      <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                          <div className="flex items-center gap-2 mb-2 text-amber-400 font-bold">
+                              <BookOpen className="w-4 h-4" /> Xử lý Văn bản dài
+                          </div>
+                          <p className="text-xs text-slate-400 leading-relaxed">
+                              Tự động phân tích và chia nhỏ văn bản dài thành các đoạn hợp lý, giữ mạch cảm xúc và ngữ cảnh.
+                          </p>
+                      </div>
+                   </div>
+                </div>
+
+                {/* 3. Step-by-Step Guide */}
+                <div>
+                   <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Hướng dẫn từng bước</h3>
+                   <div className="space-y-4">
+                      <div className="flex gap-4">
+                          <div className="flex-col items-center hidden sm:flex">
+                              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 text-slate-400 font-bold flex items-center justify-center text-sm">1</div>
+                              <div className="h-full w-px bg-slate-800 my-2"></div>
+                          </div>
+                          <div className="pb-6">
+                              <h4 className="text-white font-bold text-sm mb-1">Cấu hình API Key</h4>
+                              <p className="text-xs text-slate-400">Nhấn nút <strong>Cấu hình API</strong>. Nhập key từ Google AI Studio (miễn phí) hoặc ElevenLabs. Bạn có thể nhập nhiều key (mỗi key một dòng) để dùng lâu hơn.</p>
+                          </div>
+                      </div>
+
+                      <div className="flex gap-4">
+                          <div className="flex-col items-center hidden sm:flex">
+                              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 text-slate-400 font-bold flex items-center justify-center text-sm">2</div>
+                              <div className="h-full w-px bg-slate-800 my-2"></div>
+                          </div>
+                          <div className="pb-6">
+                              <h4 className="text-white font-bold text-sm mb-1">Chọn Nhà cung cấp & Model</h4>
+                              <p className="text-xs text-slate-400">Gạt nút chuyển đổi giữa <strong>Gemini</strong> và <strong>ElevenLabs</strong> trên thanh menu. Chọn Model phù hợp (ví dụ: Gemini 2.5 Pro cho audiobooks).</p>
+                          </div>
+                      </div>
+
+                      <div className="flex gap-4">
+                           <div className="flex-col items-center hidden sm:flex">
+                              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 text-slate-400 font-bold flex items-center justify-center text-sm">3</div>
+                          </div>
+                          <div>
+                              <h4 className="text-white font-bold text-sm mb-1">Tùy chỉnh & Tạo</h4>
+                              <p className="text-xs text-slate-400 mb-2">Chọn Ngôn ngữ, Giọng đọc. Mở phần <strong>Tùy chỉnh nâng cao</strong> để chỉnh Tone (Cảm xúc) và Style (Phong cách).</p>
+                              <div className="bg-yellow-900/20 border border-yellow-700/30 p-3 rounded-lg flex items-start gap-2">
+                                  <Zap className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                                  <p className="text-[10px] text-yellow-500/90 font-medium">Mẹo: Với ElevenLabs, bạn có thể nhấn "Tạo giọng mới" để Clone giọng từ file âm thanh mẫu.</p>
+                              </div>
+                          </div>
+                      </div>
+                   </div>
+                </div>
               </div>
            </div>
         </div>
@@ -674,7 +776,7 @@ function App() {
                           <Volume2 className="w-12 h-12 text-brand-400" />
                           <div className="absolute inset-0 rounded-full border-4 border-brand-500/30 border-t-brand-500 animate-spin"></div>
                        </div>
-                       <h3 className={`text-2xl font-medium mb-2 ${bgColor.isLight ? 'text-slate-800' : 'text-white'}`}>Đang tổng hợp âm thanh...</h3>
+                       <h3 className={`text-2xl font-medium mb-2 ${bgColor.isLight ? 'text-slate-800' : 'text-white'}`}>{statusMessage || "Đang tổng hợp âm thanh..."}</h3>
                        <p className={`${bgColor.isLight ? 'text-slate-600' : 'text-slate-400'}`}>Đang áp dụng cài đặt giọng, tông và phong cách.</p>
                     </div>
                  ) : (
