@@ -39,6 +39,46 @@ export const getActiveElevenLabsKey = (): string | null => {
   return selectedKey;
 };
 
+// --- FRIENDLY ERROR HELPER ---
+
+const getFriendlyElevenLabsError = (status: number, errorData: any): string => {
+  const detail = errorData?.detail;
+  const rawMessage = (typeof detail === 'string' ? detail : detail?.message || JSON.stringify(errorData)).toLowerCase();
+  
+  // 1. Authorization
+  if (status === 401 || rawMessage.includes("invalid_api_key")) {
+      return "ElevenLabs API Key không chính xác. Vui lòng kiểm tra lại cấu hình.";
+  }
+
+  // 2. Quota / Billing
+  if (status === 402 || rawMessage.includes("quota_exceeded") || rawMessage.includes("bill")) {
+      return "Bạn đã dùng hết số ký tự miễn phí của gói hiện tại (Quota Exceeded). Hãy nâng cấp gói hoặc dùng Key khác.";
+  }
+
+  // 3. Rate Limit / Concurrency
+  if (status === 429 || rawMessage.includes("too_many_requests") || rawMessage.includes("concurrency")) {
+      return "Hệ thống đang bận (Quá nhiều yêu cầu cùng lúc). Vui lòng chờ vài giây rồi thử lại.";
+  }
+
+  // 4. Resources Not Found
+  if (status === 404 || rawMessage.includes("voice_not_found")) {
+      return "ID giọng đọc không tồn tại. Vui lòng kiểm tra lại Voice ID.";
+  }
+
+  // 5. Validation
+  if (status === 400) {
+      if (rawMessage.includes("text")) return "Văn bản đầu vào không hợp lệ hoặc quá dài.";
+      return "Yêu cầu không hợp lệ. Vui lòng kiểm tra lại cấu hình giọng đọc.";
+  }
+
+  // 6. Network / Server
+  if (status >= 500) {
+      return "Lỗi máy chủ ElevenLabs. Dịch vụ đang bảo trì, vui lòng thử lại sau.";
+  }
+
+  return `Lỗi ElevenLabs: ${rawMessage}`;
+};
+
 export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ audioUrl: string }> => {
   const apiKey = getActiveElevenLabsKey();
   
@@ -76,7 +116,7 @@ export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ aud
 
         if (!response.ok) {
             const errorData = await response.json();
-            throw new Error(errorData.detail?.message || "Lỗi khi gọi ElevenLabs API");
+            throw new Error(getFriendlyElevenLabsError(response.status, errorData));
         }
 
         const blob = await response.blob();
@@ -106,6 +146,10 @@ export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ aud
 
   } catch (error: any) {
     console.error("ElevenLabs Error:", error);
+    // If it's already a friendly error message, just rethrow it
+    if (error.message.includes("Lỗi") || error.message.includes("API Key") || error.message.includes("Quota")) {
+        throw error;
+    }
     throw new Error(error.message || "Không thể tạo giọng nói qua ElevenLabs.");
   }
 };

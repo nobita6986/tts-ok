@@ -43,6 +43,49 @@ export const getActiveApiKey = (): string | null => {
   return selectedKey;
 };
 
+// --- ERROR MAPPING HELPER ---
+
+const getFriendlyGeminiErrorMessage = (error: any): string => {
+  const msg = (error.message || JSON.stringify(error)).toLowerCase();
+
+  // 1. Quota / Limits
+  if (msg.includes("429") || msg.includes("resource_exhausted") || msg.includes("too many requests")) {
+    return "Hệ thống đang quá tải hoặc Key của bạn đã hết lượt dùng miễn phí (Quota Exceeded). Vui lòng thử lại sau hoặc dùng Key khác.";
+  }
+
+  // 2. Authentication / Permissions
+  if (msg.includes("400") || msg.includes("invalid_argument")) {
+    if (msg.includes("api key")) {
+       return "API Key không hợp lệ. Vui lòng kiểm tra lại cấu hình.";
+    }
+    return "Yêu cầu không hợp lệ. Có thể ngôn ngữ hoặc giọng đọc không được hỗ trợ.";
+  }
+  if (msg.includes("401") || msg.includes("unauthenticated")) {
+    return "API Key không chính xác hoặc đã bị vô hiệu hóa.";
+  }
+  if (msg.includes("403") || msg.includes("permission_denied")) {
+    return "API Key không có quyền truy cập. Vui lòng kiểm tra xem bạn đã bật Billing cho project Google Cloud chưa.";
+  }
+
+  // 3. Not Found
+  if (msg.includes("404") || msg.includes("not_found")) {
+    return "Model AI hoặc tài nguyên không tìm thấy. Có thể Google đang bảo trì model này.";
+  }
+
+  // 4. Safety / Content Policy
+  if (msg.includes("safety") || msg.includes("blocked")) {
+    return "Nội dung bị từ chối do vi phạm chính sách an toàn của Google (Safety Filter). Hãy thử điều chỉnh nội dung nhẹ nhàng hơn.";
+  }
+
+  // 5. Network
+  if (msg.includes("fetch") || msg.includes("network") || msg.includes("failed to fetch")) {
+    return "Lỗi kết nối mạng. Vui lòng kiểm tra internet và thử lại.";
+  }
+
+  // Fallback
+  return `Lỗi hệ thống Gemini: ${error.message}`;
+};
+
 // --- UTILS: Text Splitting ---
 
 const DEFAULT_CHUNK_LENGTH = 1500; 
@@ -142,7 +185,6 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
       const chunk = textChunks[i];
       try {
           // --- PROMPT OPTIMIZATION ---
-          // Simpler structure to avoid confusing the model/safety filters
           
           let promptContext = "";
           if (i > 0 && previousContextSentence) {
@@ -172,7 +214,7 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
 
           // Detailed Validation
           if (!ttsResponse.candidates || ttsResponse.candidates.length === 0) {
-             throw new Error("API không trả về dữ liệu (No Candidates). Có thể do bộ lọc an toàn (Safety Settings) hoặc Prompt bị chặn.");
+             throw new Error("Safety Block: Bộ lọc an toàn chặn phản hồi.");
           }
 
           const candidate = ttsResponse.candidates[0];
@@ -184,11 +226,10 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
           const base64 = candidate.content?.parts?.[0]?.inlineData?.data;
           
           if (!base64) {
-              // If finishReason is SAFETY, expose it
               if (candidate.finishReason === "SAFETY") {
-                  throw new Error("Nội dung bị chặn bởi bộ lọc an toàn của Google (Safety Violation).");
+                  throw new Error("Safety Violation: Nội dung bị chặn bởi chính sách an toàn.");
               }
-              throw new Error("Dữ liệu âm thanh rỗng (Empty Audio Data).");
+              throw new Error("Empty Data: Dữ liệu âm thanh rỗng.");
           }
 
           const bytes = base64ToUint8Array(base64);
@@ -220,18 +261,10 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
   // Final check
   if (audioParts.length === 0) {
       if (firstError) {
-          // Re-throw the actual error to the UI
-          const msg = firstError.message || JSON.stringify(firstError);
-          // Detect common API errors to give better advice
-          if (msg.includes("429")) {
-              throw new Error("Lỗi 429: Quá giới hạn request (Quota Exceeded). Hãy thử Key khác hoặc chờ một chút.");
-          }
-          if (msg.includes("400")) {
-             throw new Error(`Lỗi 400: Yêu cầu không hợp lệ. ${msg}`);
-          }
-          throw new Error(`Lỗi Gemini API: ${msg}`);
+          // Translate error to friendly message
+          throw new Error(getFriendlyGeminiErrorMessage(firstError));
       }
-      throw new Error("Không có dữ liệu âm thanh nào được tạo (Lỗi không xác định).");
+      throw new Error("Không có dữ liệu âm thanh nào được tạo. Vui lòng thử lại.");
   }
 
   // Merge Audio
