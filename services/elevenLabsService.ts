@@ -68,6 +68,7 @@ const getFriendlyElevenLabsError = (status: number, errorData: any): string => {
   // 5. Validation
   if (status === 400) {
       if (rawMessage.includes("text")) return "Văn bản đầu vào không hợp lệ hoặc quá dài.";
+      if (rawMessage.includes("files")) return "File âm thanh không hợp lệ hoặc quá ngắn/dài.";
       return "Yêu cầu không hợp lệ. Vui lòng kiểm tra lại cấu hình giọng đọc.";
   }
 
@@ -77,6 +78,42 @@ const getFriendlyElevenLabsError = (status: number, errorData: any): string => {
   }
 
   return `Lỗi ElevenLabs: ${rawMessage}`;
+};
+
+export const createVoiceElevenLabs = async (name: string, files: File[], apiKey: string): Promise<string> => {
+    if (!apiKey) throw new Error("Yêu cầu API Key để tạo giọng clone.");
+    if (files.length === 0) throw new Error("Vui lòng tải lên ít nhất 1 file âm thanh.");
+
+    const formData = new FormData();
+    formData.append('name', name);
+    files.forEach(file => {
+        formData.append('files', file);
+    });
+    formData.append('description', 'Cloned via Web App');
+    // Labels seem optional usually, but helpful
+    // formData.append('labels', JSON.stringify({ "accent": "American" })); 
+
+    try {
+        const response = await fetch('https://api.elevenlabs.io/v1/voices/add', {
+            method: 'POST',
+            headers: {
+                'xi-api-key': apiKey,
+                // Do NOT set Content-Type here, fetch sets it with boundary for FormData
+            },
+            body: formData
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(getFriendlyElevenLabsError(response.status, errorData));
+        }
+
+        const data = await response.json();
+        return data.voice_id; // Return the new voice ID
+    } catch (error: any) {
+        console.error("Clone Voice Error:", error);
+        throw new Error(error.message || "Không thể tạo giọng clone. Vui lòng kiểm tra lại.");
+    }
 };
 
 export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ audioUrl: string }> => {

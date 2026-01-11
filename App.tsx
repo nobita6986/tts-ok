@@ -6,7 +6,7 @@ import { generateSpeechGemini, getStoredApiKeys, setStoredApiKeys } from './serv
 import { generateSpeechElevenLabs, getStoredElevenLabsKeys, setStoredElevenLabsKeys } from './services/elevenLabsService';
 import { TTSConfig, GeneratedAudio, GenerationStatus, SavedScript, AudioSegment } from './types';
 import { APP_BACKGROUNDS } from './constants';
-import { Mic, Sparkles, Volume2, Palette, Settings, Key, X, ExternalLink, ShieldCheck, AlertCircle, Activity, Info, BookOpen, History, Trash2, ArrowRightCircle } from 'lucide-react';
+import { Mic, Sparkles, Volume2, Palette, Settings, Key, X, ExternalLink, ShieldCheck, AlertCircle, Activity, Info, BookOpen, History, Trash2, ArrowRightCircle, Facebook, Shield, Globe, Save, Server } from 'lucide-react';
 
 function App() {
   const [status, setStatus] = useState<GenerationStatus>(GenerationStatus.IDLE);
@@ -25,6 +25,11 @@ function App() {
   const [elevenLabsKeysText, setElevenLabsKeysText] = useState("");
   const [hasGemini, setHasGemini] = useState(false);
   const [hasElevenLabs, setHasElevenLabs] = useState(false);
+
+  // Proxy State
+  const [showProxyModal, setShowProxyModal] = useState(false);
+  const [proxyKeysText, setProxyKeysText] = useState("");
+  const [isProxyEnabled, setIsProxyEnabled] = useState(false);
 
   // Guide & Library State
   const [showGuideModal, setShowGuideModal] = useState(false);
@@ -175,6 +180,16 @@ function App() {
       setShowLibraryModal(false);
   };
 
+  // Proxy Handlers (Placeholder for future logic)
+  const handleCheckProxyIP = () => {
+      alert("Chức năng kiểm tra IP sẽ được cập nhật sau.");
+  };
+
+  const handleSaveProxy = () => {
+      alert("Đã lưu cấu hình Proxy (Mô phỏng).");
+      setShowProxyModal(false);
+  };
+
   return (
     <div 
       className="min-h-screen pb-12 font-sans transition-colors duration-700"
@@ -226,6 +241,97 @@ function App() {
                         <li>Nhấn <strong>Tạo</strong> và chờ kết quả. Kịch bản sẽ tự động lưu vào <strong>Thư viện</strong>.</li>
                     </ol>
                  </section>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* --- PROXY MODAL --- */}
+      {showProxyModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+           <div className="bg-[#0f172a] border border-slate-700 w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden animate-slide-up flex flex-col">
+              {/* Modal Header */}
+              <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
+                <div className="flex items-center gap-3">
+                   <div className="w-2 h-2 rounded-full bg-slate-500"></div>
+                   <div>
+                       <h2 className="text-lg font-bold text-white leading-none">Cấu hình Multi-Proxy (Pool)</h2>
+                       <p className="text-[10px] text-slate-400 mt-1">Chỉ áp dụng cho ElevenLabs. Gemini sẽ kết nối trực tiếp.</p>
+                   </div>
+                </div>
+                <div className="flex items-center gap-4">
+                    {/* Toggle Switch */}
+                    <div 
+                        onClick={() => setIsProxyEnabled(!isProxyEnabled)}
+                        className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-300 ${isProxyEnabled ? 'bg-white' : 'bg-slate-700'}`}
+                    >
+                        <div className={`bg-slate-900 w-4 h-4 rounded-full shadow-md transform duration-300 ease-in-out ${isProxyEnabled ? 'translate-x-5' : ''}`}></div>
+                    </div>
+                    <button onClick={() => setShowProxyModal(false)} className="text-slate-400 hover:text-white transition-colors">
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 space-y-6">
+                 
+                 {/* Input Area */}
+                 <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                        <label className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5">
+                            <Key className="w-3.5 h-3.5" /> 
+                            DANH SÁCH PROXY API KEY (MỖI DÒNG 1 KEY)
+                        </label>
+                        <a href="https://proxy.vn/?home=proxyxoay" target="_blank" rel="noopener noreferrer" className="text-xs text-emerald-400 hover:text-emerald-300 font-medium hover:underline">(Mua key tại đây)</a>
+                    </div>
+                    <textarea 
+                        value={proxyKeysText}
+                        onChange={(e) => setProxyKeysText(e.target.value)}
+                        placeholder="Nhập API Key Proxy tại đây..."
+                        className="w-full h-32 bg-[#020617] border border-slate-700 rounded-lg p-3 text-white font-mono text-sm focus:outline-none focus:border-slate-500 placeholder-slate-600 resize-none custom-scrollbar"
+                        spellCheck={false}
+                    />
+                    <p className="text-xs text-slate-500">Hệ thống sẽ dùng tất cả Key để tạo Pool Proxy cho ElevenLabs.</p>
+                 </div>
+
+                 {/* Action Buttons */}
+                 <div className="grid grid-cols-2 gap-4">
+                     <button 
+                        onClick={handleCheckProxyIP}
+                        className="flex items-center justify-center gap-2 py-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm transition-colors border border-slate-600"
+                     >
+                         <Globe className="w-4 h-4" /> Kiểm tra IP
+                     </button>
+                     <button 
+                        onClick={handleSaveProxy}
+                        className="flex items-center justify-center gap-2 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm transition-colors shadow-lg shadow-emerald-900/20"
+                     >
+                         <Save className="w-4 h-4" /> Lưu & Lấy Proxy
+                     </button>
+                 </div>
+
+                 {/* Pool Status */}
+                 <div className="bg-[#1e293b]/50 border border-slate-700/50 rounded-lg p-4 flex items-center gap-3">
+                     <Server className="w-5 h-5 text-indigo-400" />
+                     <div>
+                         <div className="text-[10px] font-bold text-slate-500 uppercase">TRẠNG THÁI POOL</div>
+                         <div className="text-sm font-medium text-slate-300">Chưa có proxy nào trong Pool</div>
+                     </div>
+                 </div>
+
+                 {/* IP Check Info */}
+                 <div className="grid grid-cols-2 gap-4">
+                     <div className="bg-[#020617] border border-slate-800 rounded-lg p-3">
+                         <div className="text-[10px] text-slate-500 mb-1">IP Máy (Gốc):</div>
+                         <div className="text-sm font-bold text-white font-mono">Chưa kiểm tra</div>
+                     </div>
+                     <div className="bg-[#020617] border border-slate-800 rounded-lg p-3">
+                         <div className="text-[10px] text-slate-500 mb-1">IP Tool (Proxy):</div>
+                         <div className="text-sm font-bold text-slate-500 font-mono">Chưa kiểm tra</div>
+                     </div>
+                 </div>
+
               </div>
            </div>
         </div>
@@ -484,6 +590,15 @@ function App() {
               <Settings className="w-3.5 h-3.5" />
               <span>Cấu hình API</span>
             </button>
+
+            {/* Proxy Button */}
+            <button 
+              onClick={() => setShowProxyModal(true)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all text-xs font-semibold ${bgColor.isLight ? 'border-slate-300 bg-slate-200 hover:bg-slate-300 text-slate-600' : 'border-white/10 bg-slate-500/10 hover:bg-slate-500/20 text-slate-400 hover:text-slate-300'}`}
+            >
+              <Shield className="w-3.5 h-3.5" />
+              <span>Cấu hình Proxy</span>
+            </button>
           </div>
         </div>
       </header>
@@ -562,8 +677,20 @@ function App() {
         </div>
       </main>
 
-      <footer className={`mt-20 py-8 border-t text-center ${bgColor.isLight ? 'border-slate-200 text-slate-500' : 'border-white/10 text-slate-400'}`}>
-        <p className="text-sm">&copy; {new Date().getFullYear()} Gemini TTS. Xây dựng bằng Google GenAI SDK.</p>
+      <footer className={`mt-8 py-4 border-t text-center ${bgColor.isLight ? 'border-slate-200 text-slate-500' : 'border-white/10 text-slate-400'}`}>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-6 text-sm">
+           <span>&copy; 2026 studyai86.online. All rights reserved.</span>
+           <span className="hidden sm:inline opacity-20">|</span>
+           <a 
+             href="https://www.facebook.com/deshunvn/" 
+             target="_blank" 
+             rel="noopener noreferrer"
+             className={`flex items-center gap-2 transition-colors ${bgColor.isLight ? 'hover:text-brand-600' : 'hover:text-white'}`}
+           >
+             <Facebook className="w-4 h-4" />
+             Liên hệ
+           </a>
+        </div>
       </footer>
     </div>
   );

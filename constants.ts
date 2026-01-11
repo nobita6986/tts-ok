@@ -14,34 +14,29 @@ export const PROVIDERS = [
 
 export const ELEVENLABS_MODELS = [
   { 
-    id: 'eleven_multilingual_v3', 
-    name: 'Eleven v3 (Alpha - Tốt nhất)', 
-    description: 'Model biểu cảm nhất, hỗ trợ 70+ ngôn ngữ (bao gồm Tiếng Việt). Cần prompt chi tiết hơn.' 
-  },
-  { 
     id: 'eleven_multilingual_v2', 
-    name: 'Multilingual v2 (High Quality)', 
-    description: 'Giọng đọc tự nhiên như thật, giàu cảm xúc. Ổn định cho audiobook & voiceover (29 ngôn ngữ).' 
+    name: 'Multilingual v2 (Chất lượng cao)', 
+    description: 'Model TTS đa ngôn ngữ chất lượng cao - phù hợp cho voiceovers, podcast và nội dung đa ngôn ngữ.' 
   },
   { 
     id: 'eleven_flash_v2_5', 
-    name: 'Flash v2.5 (Nhanh nhất)', 
-    description: 'Độ trễ siêu thấp, hỗ trợ 32 ngôn ngữ. Tối ưu chi phí và tốc độ hội thoại.' 
-  },
-  { 
-    id: 'eleven_turbo_v2_5', 
-    name: 'Turbo v2.5 (Siêu tốc)', 
-    description: 'Chất lượng cao, độ trễ thấp, hỗ trợ 32 ngôn ngữ. Phù hợp cho Developer.' 
-  },
-  { 
-    id: 'eleven_turbo_v2', 
-    name: 'Turbo v2 (English Only)', 
-    description: 'Chỉ hỗ trợ Tiếng Anh. Tốc độ cao, độ trễ thấp.' 
+    name: 'Flash v2.5 (Tối ưu tốc độ)', 
+    description: 'Model tối ưu tốc độ và độ trễ thấp, hỗ trợ nhiều ngôn ngữ - tốt cho real-time/interactive apps.' 
   },
   { 
     id: 'eleven_flash_v2', 
-    name: 'Flash v2 (Legacy)', 
-    description: 'Model siêu nhanh phiên bản cũ (English Only).' 
+    name: 'Flash v2 (Cũ)', 
+    description: 'Model nhanh, được dùng trước đây - hiện dần được thay thế bởi Flash v2.5.' 
+  },
+  { 
+    id: 'eleven_turbo_v2_5', 
+    name: 'Turbo v2.5 (Cân bằng)', 
+    description: 'Model cân bằng giữa chất lượng & tốc độ, hỗ trợ nhiều ngôn ngữ.' 
+  },
+  { 
+    id: 'eleven_turbo_v2', 
+    name: 'Turbo v2 (Cũ)', 
+    description: 'Model trước đây của dòng Turbo - vẫn được hỗ trợ ở một số trường hợp.' 
   }
 ];
 
