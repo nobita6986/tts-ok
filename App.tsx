@@ -195,7 +195,164 @@ function App() {
       className="min-h-screen pb-12 font-sans transition-colors duration-700"
       style={{ backgroundColor: bgColor.value, color: bgColor.isLight ? '#1e293b' : '#e2e8f0' }}
     >
-      {/* ... (Modal Components same as before) ... */}
+      {/* --- API KEY CONFIG MODAL --- */}
+      {showApiModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden animate-slide-up">
+            <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <Settings className="w-5 h-5 text-slate-400" /> Cấu hình API Key
+              </h2>
+              <button onClick={() => setShowApiModal(false)}><X className="w-5 h-5 text-slate-400 hover:text-white" /></button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              {/* Gemini Section */}
+              <div className="space-y-3">
+                 <div className="flex items-center justify-between">
+                    <label className="text-sm font-bold text-brand-400 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4" /> Google Gemini API Keys
+                    </label>
+                    <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-xs text-slate-500 hover:text-brand-400 flex items-center gap-1 transition-colors">
+                      Lấy Key <ExternalLink className="w-3 h-3" />
+                    </a>
+                 </div>
+                 <div className="relative">
+                   <textarea
+                     value={geminiKeysText}
+                     onChange={(e) => setGeminiKeysText(e.target.value)}
+                     placeholder="Nhập danh sách API Key (mỗi dòng 1 key)..."
+                     className="w-full h-32 bg-slate-950 border border-slate-700 rounded-xl p-4 text-white placeholder-slate-600 focus:ring-2 focus:ring-brand-500 focus:border-transparent font-mono text-sm resize-none custom-scrollbar"
+                   />
+                   <div className="absolute bottom-3 right-3 text-[10px] text-slate-500 bg-slate-900/80 px-2 py-1 rounded">
+                     {geminiKeysText.split('\n').filter(k => k.trim()).length} Keys
+                   </div>
+                 </div>
+                 <p className="text-xs text-slate-500 flex items-center gap-1">
+                   <ShieldCheck className="w-3 h-3 text-emerald-500" />
+                   Hệ thống sẽ tự động xoay vòng (Round-Robin) các Key để tránh giới hạn.
+                 </p>
+              </div>
+
+              {/* ElevenLabs Section */}
+              <div className="space-y-3 pt-4 border-t border-slate-800">
+                 <div className="flex items-center justify-between">
+                    <label className="text-sm font-bold text-indigo-400 flex items-center gap-2">
+                      <Activity className="w-4 h-4" /> ElevenLabs API Keys
+                    </label>
+                    <a href="https://elevenlabs.io/app/speech-synthesis" target="_blank" rel="noreferrer" className="text-xs text-slate-500 hover:text-indigo-400 flex items-center gap-1 transition-colors">
+                      Lấy Key <ExternalLink className="w-3 h-3" />
+                    </a>
+                 </div>
+                 <div className="relative">
+                   <textarea
+                     value={elevenLabsKeysText}
+                     onChange={(e) => setElevenLabsKeysText(e.target.value)}
+                     placeholder="Nhập danh sách API Key (mỗi dòng 1 key)..."
+                     className="w-full h-24 bg-slate-950 border border-slate-700 rounded-xl p-4 text-white placeholder-slate-600 focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono text-sm resize-none custom-scrollbar"
+                   />
+                   <div className="absolute bottom-3 right-3 text-[10px] text-slate-500 bg-slate-900/80 px-2 py-1 rounded">
+                     {elevenLabsKeysText.split('\n').filter(k => k.trim()).length} Keys
+                   </div>
+                 </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button 
+                  onClick={() => setShowApiModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-white transition-colors"
+                >
+                  Hủy
+                </button>
+                <button 
+                  onClick={saveApiKeys}
+                  className="px-6 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-brand-500/20 transition-all transform hover:-translate-y-0.5"
+                >
+                  Lưu cấu hình
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- LIBRARY MODAL --- */}
+      {showLibraryModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden animate-slide-up flex flex-col max-h-[85vh]">
+            <div className="p-6 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
+               <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                 <History className="w-5 h-5 text-brand-400" /> Thư viện Kịch bản
+               </h2>
+               <div className="flex items-center gap-3">
+                 <button 
+                    onClick={clearLibrary}
+                    disabled={library.length === 0}
+                    className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 disabled:opacity-30 transition-colors"
+                 >
+                    <Trash2 className="w-3.5 h-3.5" /> Xóa tất cả
+                 </button>
+                 <div className="w-px h-4 bg-slate-700"></div>
+                 <button onClick={() => setShowLibraryModal(false)}><X className="w-5 h-5 text-slate-400 hover:text-white" /></button>
+               </div>
+            </div>
+
+            <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-slate-900/50">
+               {library.length === 0 ? (
+                 <div className="h-64 flex flex-col items-center justify-center text-slate-500 space-y-4">
+                    <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center">
+                       <BookOpen className="w-8 h-8 opacity-50" />
+                    </div>
+                    <p>Chưa có kịch bản nào được lưu.</p>
+                 </div>
+               ) : (
+                 <div className="grid gap-4">
+                    {library.map((item) => (
+                      <div key={item.id} className="bg-slate-800 border border-slate-700 rounded-xl p-4 hover:border-brand-500/50 transition-all group">
+                         <div className="flex justify-between items-start gap-4">
+                            <div className="flex-1 min-w-0">
+                               <div className="flex items-center gap-2 mb-2">
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${item.provider === 'gemini' ? 'bg-brand-900/50 text-brand-400' : 'bg-indigo-900/50 text-indigo-400'}`}>
+                                    {item.provider}
+                                  </span>
+                                  <span className="text-[10px] text-slate-500 bg-slate-950 px-1.5 py-0.5 rounded">
+                                     {new Date(item.timestamp).toLocaleString('vi-VN')}
+                                  </span>
+                               </div>
+                               <p className="text-slate-300 text-sm line-clamp-2 font-medium mb-1">{item.text}</p>
+                               <p className="text-slate-500 text-xs">
+                                  Giọng: <span className="text-slate-400">{item.voice}</span> • 
+                                  Tone: <span className="text-slate-400">{item.tone}</span> •
+                                  Style: <span className="text-slate-400">{item.style}</span>
+                               </p>
+                            </div>
+                            
+                            <div className="flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                               <button 
+                                 onClick={() => loadScript(item)}
+                                 className="p-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg shadow-lg"
+                                 title="Tải kịch bản này"
+                               >
+                                  <ArrowRightCircle className="w-4 h-4" />
+                               </button>
+                               <button 
+                                 onClick={() => deleteScript(item.id)}
+                                 className="p-2 bg-slate-700 hover:bg-red-500/20 hover:text-red-400 text-slate-400 rounded-lg transition-colors"
+                                 title="Xóa"
+                               >
+                                  <Trash2 className="w-4 h-4" />
+                               </button>
+                            </div>
+                         </div>
+                      </div>
+                    ))}
+                 </div>
+               )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* --- GUIDE MODAL --- */}
       {showGuideModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">

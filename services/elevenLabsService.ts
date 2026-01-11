@@ -32,10 +32,7 @@ export const getActiveElevenLabsKey = (): string | null => {
   }
 
   const selectedKey = keys[currentIndex];
-
-  const nextIndex = (currentIndex + 1) % keys.length;
-  localStorage.setItem(EL_INDEX_KEY, nextIndex.toString());
-
+  // Round-robin index update is handled in the main loop for retry capability
   return selectedKey;
 };
 
@@ -90,15 +87,12 @@ export const createVoiceElevenLabs = async (name: string, files: File[], apiKey:
         formData.append('files', file);
     });
     formData.append('description', 'Cloned via Web App');
-    // Labels seem optional usually, but helpful
-    // formData.append('labels', JSON.stringify({ "accent": "American" })); 
-
+    
     try {
         const response = await fetch('https://api.elevenlabs.io/v1/voices/add', {
             method: 'POST',
             headers: {
                 'xi-api-key': apiKey,
-                // Do NOT set Content-Type here, fetch sets it with boundary for FormData
             },
             body: formData
         });
@@ -109,7 +103,7 @@ export const createVoiceElevenLabs = async (name: string, files: File[], apiKey:
         }
 
         const data = await response.json();
-        return data.voice_id; // Return the new voice ID
+        return data.voice_id; 
     } catch (error: any) {
         console.error("Clone Voice Error:", error);
         throw new Error(error.message || "Không thể tạo giọng clone. Vui lòng kiểm tra lại.");
@@ -117,25 +111,24 @@ export const createVoiceElevenLabs = async (name: string, files: File[], apiKey:
 };
 
 export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ audioUrl: string }> => {
-  const apiKey = getActiveElevenLabsKey();
+  const keys = getStoredElevenLabsKeys();
   
-  if (!apiKey) {
+  if (keys.length === 0) {
     throw new Error("ElevenLabs API Key chưa được cấu hình. Vui lòng nhập Key trong phần Cài đặt.");
   }
 
   try {
     const modelId = config.elevenLabsModel || "eleven_multilingual_v2";
-    // Set explicit limit of 5000 for ElevenLabs to stay within typical safe limits
     const textChunks = splitTextIntoChunks(config.text, 5000);
     const audioBlobs: Blob[] = [];
+
+    // Round-Robin Index Initialization
+    let startKeyIndex = parseInt(localStorage.getItem(EL_INDEX_KEY) || '0', 10);
+    if (isNaN(startKeyIndex) || startKeyIndex >= keys.length) startKeyIndex = 0;
 
     // Process chunks sequentially
     for (let i = 0; i < textChunks.length; i++) {
         const chunk = textChunks[i];
-        
-        // --- CONTEXTUAL LINKING ---
-        // We pass previous and next text to help ElevenLabs maintain prosody (flow/intonation)
-        // taking the last ~500 chars of prev chunk and first ~500 chars of next chunk.
         
         const previousText = i > 0 
             ? textChunks[i - 1].slice(-500).trim() 
@@ -145,48 +138,80 @@ export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ aud
             ? textChunks[i + 1].slice(0, 500).trim() 
             : undefined;
 
-        // Build Request Body
-        const requestBody: any = {
-            text: chunk,
-            model_id: modelId,
-            voice_settings: {
-                stability: 0.5,
-                similarity_boost: 0.75,
-                style: config.style !== 'Tiêu chuẩn' ? 0.5 : 0.0, 
+        let chunkSuccess = false;
+        let lastError = null;
+
+        // --- RETRY LOOP ---
+        for (let attempt = 0; attempt < keys.length; attempt++) {
+            const currentKeyIndex = (startKeyIndex + attempt) % keys.length;
+            const apiKey = keys[currentKeyIndex];
+
+            try {
+                // Build Request Body
+                const requestBody: any = {
+                    text: chunk,
+                    model_id: modelId,
+                    voice_settings: {
+                        stability: 0.5,
+                        similarity_boost: 0.75,
+                        style: config.style !== 'Tiêu chuẩn' ? 0.5 : 0.0, 
+                    }
+                };
+
+                if (previousText) requestBody.previous_text = previousText;
+                if (nextText) requestBody.next_text = nextText;
+
+                const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${config.voice}`, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'audio/mpeg',
+                        'xi-api-key': apiKey,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(getFriendlyElevenLabsError(response.status, errorData));
+                }
+
+                const blob = await response.blob();
+                audioBlobs.push(blob);
+
+                // Streaming Callback
+                if (config.onSegmentGenerated) {
+                    const segmentUrl = URL.createObjectURL(blob);
+                    const segment: AudioSegment = {
+                        id: i,
+                        text: chunk,
+                        audioUrl: segmentUrl
+                    };
+                    config.onSegmentGenerated(segment);
+                }
+
+                // Success! Save index for next time
+                localStorage.setItem(EL_INDEX_KEY, ((currentKeyIndex + 1) % keys.length).toString());
+                startKeyIndex = (currentKeyIndex + 1) % keys.length;
+
+                chunkSuccess = true;
+                break; // Exit retry loop
+
+            } catch (err: any) {
+                console.warn(`ElevenLabs key index ${currentKeyIndex} failed:`, err.message);
+                lastError = err;
+
+                // Check if retry-able
+                const msg = err.message.toLowerCase();
+                const isRetryable = msg.includes("quota") || msg.includes("bill") || msg.includes("key") || msg.includes("429");
+
+                if (!isRetryable) break; // Don't retry for validation/logic errors
             }
-        };
+        } // End Retry Loop
 
-        // Inject context if available
-        if (previousText) requestBody.previous_text = previousText;
-        if (nextText) requestBody.next_text = nextText;
-
-        const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${config.voice}`, {
-            method: 'POST',
-            headers: {
-                'Accept': 'audio/mpeg',
-                'xi-api-key': apiKey,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestBody)
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(getFriendlyElevenLabsError(response.status, errorData));
-        }
-
-        const blob = await response.blob();
-        audioBlobs.push(blob);
-
-        // *** STREAMING: Emit segment immediately ***
-        if (config.onSegmentGenerated) {
-            const segmentUrl = URL.createObjectURL(blob);
-            const segment: AudioSegment = {
-                id: i,
-                text: chunk,
-                audioUrl: segmentUrl
-            };
-            config.onSegmentGenerated(segment);
+        if (!chunkSuccess) {
+            if (lastError) throw lastError;
+            throw new Error("Không thể tạo giọng nói. Vui lòng kiểm tra lại Key hoặc kết nối mạng.");
         }
     }
 
@@ -202,7 +227,6 @@ export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ aud
 
   } catch (error: any) {
     console.error("ElevenLabs Error:", error);
-    // If it's already a friendly error message, just rethrow it
     if (error.message.includes("Lỗi") || error.message.includes("API Key") || error.message.includes("Quota")) {
         throw error;
     }

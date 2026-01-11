@@ -37,9 +37,9 @@ export const getActiveApiKey = (): string | null => {
   }
 
   const selectedKey = keys[currentIndex];
-  const nextIndex = (currentIndex + 1) % keys.length;
-  localStorage.setItem(GEMINI_INDEX_KEY, nextIndex.toString());
-
+  // Note: We don't increment here anymore for simple single calls, 
+  // round-robin logic is now handled in the loop inside generateSpeech
+  
   return selectedKey;
 };
 
@@ -155,10 +155,14 @@ export const splitTextIntoChunks = (text: string, maxLength: number = DEFAULT_CH
 // --- SERVICE LOGIC ---
 
 export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUrl: string }> => {
-  const apiKey = getActiveApiKey();
-  if (!apiKey) throw new Error("Gemini API Key chưa được cấu hình.");
+  // Get all available keys
+  let keys = getStoredApiKeys();
+  if (keys.length === 0 && process.env.API_KEY) {
+      keys = [process.env.API_KEY];
+  }
   
-  const ai = new GoogleGenAI({ apiKey });
+  if (keys.length === 0) throw new Error("Gemini API Key chưa được cấu hình.");
+
   const rawVoiceName = config.voice.split('_')[0];
   const langName = LANGUAGES.find(l => l.code === config.language)?.name || "Tiếng Việt";
   
@@ -177,92 +181,122 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
   if (config.instructions) instructionKeywords.push(config.instructions.trim());
 
   let previousContextSentence = "";
-  
-  // ERROR TRACKING
   let firstError: any = null;
+
+  // Round-Robin State
+  let startKeyIndex = parseInt(localStorage.getItem(GEMINI_INDEX_KEY) || '0', 10);
+  if (isNaN(startKeyIndex) || startKeyIndex >= keys.length) startKeyIndex = 0;
 
   for (let i = 0; i < textChunks.length; i++) {
       const chunk = textChunks[i];
-      try {
-          // --- PROMPT OPTIMIZATION ---
-          
-          let promptContext = "";
-          if (i > 0 && previousContextSentence) {
-              promptContext = `Previous context (for continuity only): "...${previousContextSentence}"`;
-          }
+      let chunkSuccess = false;
+      let chunkError = null;
 
-          const textToSpeech = `
-            Read the following text in ${langName}.
-            Voice Persona: ${instructionKeywords.join(', ')}.
-            Constraint: Maintain consistent speed and pitch.
-            ${promptContext}
-            
-            Text to read:
-            "${chunk}"
-          `.trim();
+      // Try with rotating keys for this chunk
+      for (let attempt = 0; attempt < keys.length; attempt++) {
+          const currentKeyIndex = (startKeyIndex + attempt) % keys.length;
+          const apiKey = keys[currentKeyIndex];
 
-          const ttsResponse = await ai.models.generateContent({
-              model: ttsModel,
-              contents: [{ parts: [{ text: textToSpeech }] }],
-              config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: { prebuiltVoiceConfig: { voiceName: targetVoice as any } },
-                },
-              },
-          });
-
-          // Detailed Validation
-          if (!ttsResponse.candidates || ttsResponse.candidates.length === 0) {
-             throw new Error("Safety Block: Bộ lọc an toàn chặn phản hồi.");
-          }
-
-          const candidate = ttsResponse.candidates[0];
-          // Check for finish reason if present
-          if (candidate.finishReason && candidate.finishReason !== "STOP") {
-              console.warn(`Chunk ${i} finished with reason: ${candidate.finishReason}`);
-          }
-
-          const base64 = candidate.content?.parts?.[0]?.inlineData?.data;
-          
-          if (!base64) {
-              if (candidate.finishReason === "SAFETY") {
-                  throw new Error("Safety Violation: Nội dung bị chặn bởi chính sách an toàn.");
+          try {
+              const ai = new GoogleGenAI({ apiKey });
+              
+              let promptContext = "";
+              if (i > 0 && previousContextSentence) {
+                  promptContext = `Previous context (for continuity only): "...${previousContextSentence}"`;
               }
-              throw new Error("Empty Data: Dữ liệu âm thanh rỗng.");
+
+              const textToSpeech = `
+                Read the following text in ${langName}.
+                Voice Persona: ${instructionKeywords.join(', ')}.
+                Constraint: Maintain consistent speed and pitch.
+                ${promptContext}
+                
+                Text to read:
+                "${chunk}"
+              `.trim();
+
+              const ttsResponse = await ai.models.generateContent({
+                  model: ttsModel,
+                  contents: [{ parts: [{ text: textToSpeech }] }],
+                  config: {
+                    responseModalities: [Modality.AUDIO],
+                    speechConfig: {
+                        voiceConfig: { prebuiltVoiceConfig: { voiceName: targetVoice as any } },
+                    },
+                  },
+              });
+
+              if (!ttsResponse.candidates || ttsResponse.candidates.length === 0) {
+                 throw new Error("Safety Block: Bộ lọc an toàn chặn phản hồi.");
+              }
+
+              const candidate = ttsResponse.candidates[0];
+              const base64 = candidate.content?.parts?.[0]?.inlineData?.data;
+              
+              if (!base64) {
+                  if (candidate.finishReason === "SAFETY") {
+                      throw new Error("Safety Violation: Nội dung bị chặn bởi chính sách an toàn.");
+                  }
+                  throw new Error("Empty Data: Dữ liệu âm thanh rỗng.");
+              }
+
+              const bytes = base64ToUint8Array(base64);
+              audioParts.push(bytes);
+
+              if (config.onSegmentGenerated) {
+                  const segmentUrl = audioBytesToWavBlobURL(bytes);
+                  const segment: AudioSegment = {
+                      id: i,
+                      text: chunk,
+                      audioUrl: segmentUrl
+                  };
+                  config.onSegmentGenerated(segment);
+              }
+
+              // Update context
+              const words = chunk.trim().split(/\s+/);
+              const contextLength = Math.min(words.length, 50);
+              previousContextSentence = words.slice(-contextLength).join(" ");
+
+              // Success! Update global index for next time to load balance
+              // We set the start index to the next key to distribute load
+              localStorage.setItem(GEMINI_INDEX_KEY, ((currentKeyIndex + 1) % keys.length).toString());
+              
+              // Update local start index for next chunk optimization
+              startKeyIndex = (currentKeyIndex + 1) % keys.length;
+
+              chunkSuccess = true;
+              break; // Exit key loop
+
+          } catch (error: any) {
+              console.warn(`Attempt failed with Key index ${currentKeyIndex}:`, error.message);
+              chunkError = error;
+              
+              // Determine if we should retry
+              // We retry on Quota (429), Auth (401), or Server Errors (5xx)
+              const msg = (error.message || "").toLowerCase();
+              const isRetryable = msg.includes("429") || msg.includes("401") || msg.includes("exhausted") || msg.includes("fetch");
+              
+              if (!isRetryable) {
+                  // If it's a safety block or bad request, retrying with another key probably won't help
+                  break; 
+              }
+              // If retryable, loop continues to next key
           }
+      } // End key loop
 
-          const bytes = base64ToUint8Array(base64);
-          audioParts.push(bytes);
-
-          if (config.onSegmentGenerated) {
-              const segmentUrl = audioBytesToWavBlobURL(bytes);
-              const segment: AudioSegment = {
-                  id: i,
-                  text: chunk,
-                  audioUrl: segmentUrl
-              };
-              config.onSegmentGenerated(segment);
-          }
-
-          // Update context
-          const words = chunk.trim().split(/\s+/);
-          // Increase context to 50 words for better flow capture
-          const contextLength = Math.min(words.length, 50);
-          previousContextSentence = words.slice(-contextLength).join(" ");
-
-      } catch (error: any) {
-          console.error(`Lỗi tạo chunk ${i}:`, error);
-          if (!firstError) {
-              firstError = error;
-          }
+      if (!chunkSuccess) {
+          console.error(`Failed to generate chunk ${i} after trying all keys.`);
+          if (!firstError) firstError = chunkError;
+          // Depending on requirements, we might stop everything or just skip the chunk.
+          // Usually, if one chunk fails completely, the audio is ruined.
+          break; 
       }
   }
 
   // Final check
   if (audioParts.length === 0) {
       if (firstError) {
-          // Translate error to friendly message
           throw new Error(getFriendlyGeminiErrorMessage(firstError));
       }
       throw new Error("Không có dữ liệu âm thanh nào được tạo. Vui lòng thử lại.");
