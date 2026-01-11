@@ -709,7 +709,9 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
                       <Edit3 className="w-4 h-4" />
                       Kịch bản
                     </label>
-                    <span className="text-xs text-slate-500 font-mono">{text.length} ký tự</span>
+                    <span className="text-xs text-slate-500 font-mono">
+                      {text.trim() ? text.trim().split(/\s+/).length : 0} từ • {text.length} ký tự
+                    </span>
                   </div>
                   <textarea
                     value={text}
