@@ -435,7 +435,7 @@ export const ScriptForm: React.FC<ScriptFormProps> = ({
                   >
                     {filteredVoices.map(v => (
                       <option key={v.id} value={v.id}>
-                        {v.name} ({v.gender}, {v.traits})
+                        {v.id === 'custom_input' ? v.name : `${v.name} (${v.gender}, ${v.traits})`}
                       </option>
                     ))}
                   </select>
