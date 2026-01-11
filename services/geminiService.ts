@@ -45,7 +45,6 @@ export const getActiveApiKey = (): string | null => {
 
 // --- UTILS: Text Splitting ---
 
-// Keeping limit at 1500 chars for stability
 const DEFAULT_CHUNK_LENGTH = 1500; 
 
 export const splitTextIntoChunks = (text: string, maxLength: number = DEFAULT_CHUNK_LENGTH): string[] => {
@@ -134,36 +133,29 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
   if (config.style && config.style !== 'Tiêu chuẩn') instructionKeywords.push(config.style);
   if (config.instructions) instructionKeywords.push(config.instructions.trim());
 
-  // Variable to hold the context from the previous loop iteration
   let previousContextSentence = "";
+  
+  // ERROR TRACKING
+  let firstError: any = null;
 
   for (let i = 0; i < textChunks.length; i++) {
       const chunk = textChunks[i];
       try {
-          // --- CONTEXTUAL PROMPTING ---
-          // We provide the last sentence of the previous chunk as "Context" but tell the model NOT to read it.
-          // This bridges the audio gap.
+          // --- PROMPT OPTIMIZATION ---
+          // Simpler structure to avoid confusing the model/safety filters
           
           let promptContext = "";
           if (i > 0 && previousContextSentence) {
-              promptContext = `
-                PREVIOUS CONTEXT (DO NOT READ THIS PART, just use it for tone continuity):
-                "...${previousContextSentence}"
-              `;
+              promptContext = `Previous context (for continuity only): "...${previousContextSentence}"`;
           }
 
           const textToSpeech = `
-            Role: Expert Voice Actor.
-            Task: Read the TARGET TEXT aloud in ${langName}.
-            
-            Voice Settings:
-            - Persona: ${instructionKeywords.join(', ')}
-            - Continuity: Maintain exact pitch, speed, and volume from the previous context.
-            - Flow: Do not pause at the beginning. Connect smoothly.
-
+            Read the following text in ${langName}.
+            Voice Persona: ${instructionKeywords.join(', ')}.
+            Constraint: Maintain consistent speed and pitch.
             ${promptContext}
-
-            TARGET TEXT (READ ONLY THIS):
+            
+            Text to read:
             "${chunk}"
           `.trim();
 
@@ -177,34 +169,70 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
                 },
               },
           });
-          const base64 = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-          
-          if (base64) {
-              const bytes = base64ToUint8Array(base64);
-              audioParts.push(bytes);
 
-              if (config.onSegmentGenerated) {
-                  const segmentUrl = audioBytesToWavBlobURL(bytes);
-                  const segment: AudioSegment = {
-                      id: i,
-                      text: chunk,
-                      audioUrl: segmentUrl
-                  };
-                  config.onSegmentGenerated(segment);
-              }
-
-              // Update context for next loop
-              // Get the last 15-20 words to pass as context
-              const words = chunk.trim().split(/\s+/);
-              const contextLength = Math.min(words.length, 20);
-              previousContextSentence = words.slice(-contextLength).join(" ");
+          // Detailed Validation
+          if (!ttsResponse.candidates || ttsResponse.candidates.length === 0) {
+             throw new Error("API không trả về dữ liệu (No Candidates). Có thể do bộ lọc an toàn (Safety Settings) hoặc Prompt bị chặn.");
           }
+
+          const candidate = ttsResponse.candidates[0];
+          // Check for finish reason if present
+          if (candidate.finishReason && candidate.finishReason !== "STOP") {
+              console.warn(`Chunk ${i} finished with reason: ${candidate.finishReason}`);
+          }
+
+          const base64 = candidate.content?.parts?.[0]?.inlineData?.data;
+          
+          if (!base64) {
+              // If finishReason is SAFETY, expose it
+              if (candidate.finishReason === "SAFETY") {
+                  throw new Error("Nội dung bị chặn bởi bộ lọc an toàn của Google (Safety Violation).");
+              }
+              throw new Error("Dữ liệu âm thanh rỗng (Empty Audio Data).");
+          }
+
+          const bytes = base64ToUint8Array(base64);
+          audioParts.push(bytes);
+
+          if (config.onSegmentGenerated) {
+              const segmentUrl = audioBytesToWavBlobURL(bytes);
+              const segment: AudioSegment = {
+                  id: i,
+                  text: chunk,
+                  audioUrl: segmentUrl
+              };
+              config.onSegmentGenerated(segment);
+          }
+
+          // Update context
+          const words = chunk.trim().split(/\s+/);
+          const contextLength = Math.min(words.length, 20);
+          previousContextSentence = words.slice(-contextLength).join(" ");
+
       } catch (error: any) {
           console.error(`Lỗi tạo chunk ${i}:`, error);
+          if (!firstError) {
+              firstError = error;
+          }
       }
   }
 
-  if (audioParts.length === 0) throw new Error("Không có dữ liệu âm thanh nào được tạo.");
+  // Final check
+  if (audioParts.length === 0) {
+      if (firstError) {
+          // Re-throw the actual error to the UI
+          const msg = firstError.message || JSON.stringify(firstError);
+          // Detect common API errors to give better advice
+          if (msg.includes("429")) {
+              throw new Error("Lỗi 429: Quá giới hạn request (Quota Exceeded). Hãy thử Key khác hoặc chờ một chút.");
+          }
+          if (msg.includes("400")) {
+             throw new Error(`Lỗi 400: Yêu cầu không hợp lệ. ${msg}`);
+          }
+          throw new Error(`Lỗi Gemini API: ${msg}`);
+      }
+      throw new Error("Không có dữ liệu âm thanh nào được tạo (Lỗi không xác định).");
+  }
 
   // Merge Audio
   const totalLength = audioParts.reduce((acc, curr) => acc + curr.length, 0);
