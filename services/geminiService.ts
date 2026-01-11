@@ -45,11 +45,12 @@ export const getActiveApiKey = (): string | null => {
 
 // --- UTILS: Text Splitting ---
 
-// Updated Limit: ~4000 Vietnamese words.
-// Avg Vietnamese word length + space is approx 5 chars.
-// 4000 words * 5 chars = 20,000 characters.
-// This is well within Gemini's 8192 token limit (which is roughly 30k+ chars for English, slightly less for complex scripts).
-const DEFAULT_CHUNK_LENGTH = 20000; 
+// QUALITY ADJUSTMENT:
+// Previously set to 20,000 chars (~4000 words). However, generating >5 mins of audio 
+// in a single pass causes Gemini TTS to degrade (static/robotic artifacts) at the end.
+// Reduced to 4500 chars (~3-4 mins) to ensure "Fresh" high-quality audio for every segment.
+// The segments are concatenated seamlessly via Raw PCM, so the user still gets one long file.
+const DEFAULT_CHUNK_LENGTH = 4500; 
 
 export const splitTextIntoChunks = (text: string, maxLength: number = DEFAULT_CHUNK_LENGTH): string[] => {
   if (!text) return [];
@@ -157,7 +158,7 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
   const rawVoiceName = config.voice.split('_')[0];
   const langName = LANGUAGES.find(l => l.code === config.language)?.name || "Tiếng Việt";
   
-  // Use default limit (20000 chars ~ 4000 words) for Gemini
+  // Use adjusted limit to maintain quality
   const textChunks = splitTextIntoChunks(config.text);
   const audioParts: Uint8Array[] = [];
 
@@ -170,6 +171,9 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
   if (config.tone && config.tone !== 'Tiêu chuẩn') instructions.push(`${config.tone} tone`);
   if (config.style && config.style !== 'Tiêu chuẩn') instructions.push(`${config.style} style`);
   
+  // Add explicit stability instruction
+  instructions.push("Speak clearly, maintain consistent volume and speed, avoid static or distortion");
+
   if (config.instructions) instructions.push(config.instructions.trim());
 
   // Use rawVoiceName directly
@@ -178,7 +182,13 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
   for (let i = 0; i < textChunks.length; i++) {
       const chunk = textChunks[i];
       try {
-          const textToSpeech = `Say in ${langName} with ${instructions.join(', ')}: ${chunk}`;
+          // More structured prompt to force consistency
+          const textToSpeech = `
+            Directly read the following text in ${langName}.
+            Style Instructions: ${instructions.join(', ')}.
+            Text: "${chunk}"
+          `.trim();
+
           const ttsResponse = await ai.models.generateContent({
               model: ttsModel,
               contents: [{ parts: [{ text: textToSpeech }] }],
