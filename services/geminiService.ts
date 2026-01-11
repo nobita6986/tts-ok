@@ -45,12 +45,7 @@ export const getActiveApiKey = (): string | null => {
 
 // --- UTILS: Text Splitting ---
 
-// QUALITY ADJUSTMENT V2:
-// Issue: Users reported "distortion" and "unstable pitch" (trầm bổng không đều) with long texts.
-// Cause: Long generation windows cause model drift.
-// Fix: Reduced limit to 1500 chars (approx 45s - 1min audio). 
-// This forces frequent "refreshes" of the audio generation, keeping it high quality.
-// The prompt will ensure consistency between these smaller chunks.
+// Keeping limit at 1500 chars for stability
 const DEFAULT_CHUNK_LENGTH = 1500; 
 
 export const splitTextIntoChunks = (text: string, maxLength: number = DEFAULT_CHUNK_LENGTH): string[] => {
@@ -58,68 +53,46 @@ export const splitTextIntoChunks = (text: string, maxLength: number = DEFAULT_CH
   if (text.length <= maxLength) return [text];
 
   const chunks: string[] = [];
-  
-  // Normalize newlines to avoid platform specific issues
   const normalizedText = text.replace(/\r\n/g, '\n');
-  
-  // Split by double newlines to get paragraphs (Preserve paragraph structure)
   const paragraphs = normalizedText.split(/\n\s*\n/);
   
   let currentChunk = "";
-
-  // Regex to detect Chapter/Part headers to force a logical split
-  // Matches: "Chương 1", "Phần II", "Chapter 5", "Part One", "Hồi 3" at start of paragraph
   const chapterRegex = /^(Chương|Phần|Hồi|Chapter|Part)\s+(\d+|[IVX]+|One|Two|Three)/i;
 
   for (let i = 0; i < paragraphs.length; i++) {
     let para = paragraphs[i].trim();
     if (!para) continue;
 
-    // Logic 1: Priority Split by Chapter/Section
     if (currentChunk.length > 0 && chapterRegex.test(para)) {
         chunks.push(currentChunk);
         currentChunk = "";
     }
 
-    // Logic 2: Accumulate Paragraphs
     if (currentChunk.length + para.length + 2 <= maxLength) {
         currentChunk += (currentChunk ? "\n\n" : "") + para;
     } else {
-        // Adding this paragraph would exceed limit. 
-        
-        // 1. Push the current chunk if it exists.
         if (currentChunk) {
             chunks.push(currentChunk);
             currentChunk = "";
         }
 
-        // 2. Handle the current paragraph
         if (para.length <= maxLength) {
             currentChunk = para;
         } else {
-            // Logic 3: Split Massive Paragraphs (Sentence Level)
             const sentences = para.match(/[^.!?]+[.!?]+[\])'"]*|.+/g) || [para];
-            
             for (let sentence of sentences) {
                 sentence = sentence.trim();
                 if (!sentence) continue;
-
                 if (currentChunk.length + sentence.length + 1 <= maxLength) {
                     currentChunk += (currentChunk ? " " : "") + sentence;
                 } else {
                     if (currentChunk) chunks.push(currentChunk);
-                    
-                    // Logic 4: Hard Split (Word Level fallback)
                     if (sentence.length > maxLength) {
                         let temp = sentence;
                         while (temp.length > 0) {
                             let cutLimit = Math.min(temp.length, maxLength);
                             let cutIndex = temp.lastIndexOf(' ', cutLimit);
-                            
-                            if (cutIndex === -1 || cutIndex < cutLimit * 0.8) {
-                                cutIndex = cutLimit; 
-                            }
-
+                            if (cutIndex === -1 || cutIndex < cutLimit * 0.8) cutIndex = cutLimit; 
                             chunks.push(temp.slice(0, cutIndex));
                             temp = temp.slice(cutIndex).trim();
                         }
@@ -134,7 +107,6 @@ export const splitTextIntoChunks = (text: string, maxLength: number = DEFAULT_CH
   }
   
   if (currentChunk) chunks.push(currentChunk);
-  
   return chunks;
 };
 
@@ -151,55 +123,47 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
   const textChunks = splitTextIntoChunks(config.text);
   const audioParts: Uint8Array[] = [];
 
-  // --- TTS Generation Loop ---
   const ttsModel = "gemini-2.5-flash-preview-tts";
-  
-  // Build Strict Style Instructions
-  const instructionKeywords: string[] = [];
-  
-  // 1. Core Tone
-  if (config.tone && config.tone !== 'Tiêu chuẩn') {
-    instructionKeywords.push(config.tone);
-  } else {
-    // Default strict tone to prevent drifting
-    instructionKeywords.push("Professional Narrator");
-    instructionKeywords.push("Neutral Tone");
-  }
-
-  // 2. Style
-  if (config.style && config.style !== 'Tiêu chuẩn') {
-    instructionKeywords.push(config.style);
-  }
-
-  // 3. User Custom Instructions
-  if (config.instructions) {
-    instructionKeywords.push(config.instructions.trim());
-  }
-
-  // 4. Force Stability (CRITICAL FIX)
-  // These constraints tell the model to lock its pitch and speed.
-  const stabilityConstraints = [
-    "Maintain consistent volume and speaking rate",
-    "Keep pitch stable",
-    "No robotic artifacts",
-    "High fidelity audio"
-  ];
-
   const targetVoice = rawVoiceName;
+
+  // Build Persona Instructions
+  const instructionKeywords: string[] = [];
+  if (config.tone && config.tone !== 'Tiêu chuẩn') instructionKeywords.push(config.tone);
+  else instructionKeywords.push("Professional, Neutral, Steady");
+  
+  if (config.style && config.style !== 'Tiêu chuẩn') instructionKeywords.push(config.style);
+  if (config.instructions) instructionKeywords.push(config.instructions.trim());
+
+  // Variable to hold the context from the previous loop iteration
+  let previousContextSentence = "";
 
   for (let i = 0; i < textChunks.length; i++) {
       const chunk = textChunks[i];
       try {
-          // PROMPT ENGINEERING FOR STABILITY
-          // We wrap the text in a structured command to force the model to behave like a standard TTS engine
-          // rather than a creative actor (which causes the pitch variance).
+          // --- CONTEXTUAL PROMPTING ---
+          // We provide the last sentence of the previous chunk as "Context" but tell the model NOT to read it.
+          // This bridges the audio gap.
+          
+          let promptContext = "";
+          if (i > 0 && previousContextSentence) {
+              promptContext = `
+                PREVIOUS CONTEXT (DO NOT READ THIS PART, just use it for tone continuity):
+                "...${previousContextSentence}"
+              `;
+          }
+
           const textToSpeech = `
-            Task: Read the text below aloud.
-            Language: ${langName}
-            Voice Persona: ${instructionKeywords.join(', ')}
-            Technical Constraints: ${stabilityConstraints.join(', ')}.
+            Role: Expert Voice Actor.
+            Task: Read the TARGET TEXT aloud in ${langName}.
             
-            Text to Read:
+            Voice Settings:
+            - Persona: ${instructionKeywords.join(', ')}
+            - Continuity: Maintain exact pitch, speed, and volume from the previous context.
+            - Flow: Do not pause at the beginning. Connect smoothly.
+
+            ${promptContext}
+
+            TARGET TEXT (READ ONLY THIS):
             "${chunk}"
           `.trim();
 
@@ -228,6 +192,12 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
                   };
                   config.onSegmentGenerated(segment);
               }
+
+              // Update context for next loop
+              // Get the last 15-20 words to pass as context
+              const words = chunk.trim().split(/\s+/);
+              const contextLength = Math.min(words.length, 20);
+              previousContextSentence = words.slice(-contextLength).join(" ");
           }
       } catch (error: any) {
           console.error(`Lỗi tạo chunk ${i}:`, error);
