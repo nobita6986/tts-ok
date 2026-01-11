@@ -14,9 +14,14 @@ export const PROVIDERS = [
 
 export const ELEVENLABS_MODELS = [
   { 
+    id: 'eleven_v3', 
+    name: 'Eleven v3 (Mới nhất - Biểu cảm cao)', 
+    description: 'Model tiên tiến nhất với khả năng biểu cảm cao, hỗ trợ đa ngôn ngữ (~74 ngôn ngữ) và chất lượng tự nhiên nhất.' 
+  },
+  { 
     id: 'eleven_multilingual_v2', 
     name: 'Multilingual v2 (Chất lượng cao)', 
-    description: 'Model TTS đa ngôn ngữ chất lượng cao - phù hợp cho voiceovers, podcast và nội dung đa ngôn ngữ.' 
+    description: 'Model TTS đa ngôn ngữ chất lượng cao - phù hợp cho voiceovers, podcast và ứng dụng nội dung đa ngôn ngữ.' 
   },
   { 
     id: 'eleven_flash_v2_5', 
