@@ -102,6 +102,7 @@ function App() {
     // Trackers for multi-part accumulation
     let globalSegmentOffset = 0;
     const accumulatedAudioBlobs: Blob[] = [];
+    let lastBlobType = 'audio/mpeg';
 
     try {
         // Iterate through each session chunk
@@ -167,26 +168,12 @@ function App() {
                 globalSegmentOffset += (chunkMaxId + 1);
             }
 
-            // --- HANDLE AUDIO MERGING ---
+            // --- COLLECT AUDIO ---
             // 1. Fetch the blob from the returned URL of this chunk
             const response = await fetch(finalData.audioUrl);
             const blob = await response.blob();
             accumulatedAudioBlobs.push(blob);
-
-            // 2. Create a merged blob from all previous parts + current part
-            // Note: For WAV (Gemini), simple concatenation is imperfect (headers in middle) but playable in most browsers.
-            // For MP3 (ElevenLabs), this works perfectly.
-            const mergedBlob = new Blob(accumulatedAudioBlobs, { type: blob.type });
-            const mergedUrl = URL.createObjectURL(mergedBlob);
-
-            // 3. Update result with the MERGED audio URL
-            setResult(prev => {
-                if (!prev) return null;
-                return {
-                    ...prev,
-                    fullAudioUrl: mergedUrl
-                };
-            });
+            lastBlobType = blob.type;
 
             // Save to Library (We save individual parts as separate entries for safety, OR valid "checkpoints")
             // To avoid spamming library with partials, we might only save at the end, 
@@ -216,6 +203,24 @@ function App() {
             if (isMultiPart && i < sessionChunks.length - 1) {
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
+        }
+
+        // --- MERGE AUDIO AT THE END ---
+        if (accumulatedAudioBlobs.length > 0) {
+             // Create a merged blob from all previous parts + current part
+             // Note: For WAV (Gemini), simple concatenation is imperfect (headers in middle) but playable in most browsers.
+             // For MP3 (ElevenLabs), this works perfectly.
+             const mergedBlob = new Blob(accumulatedAudioBlobs, { type: lastBlobType });
+             const mergedUrl = URL.createObjectURL(mergedBlob);
+
+             // Update result with the MERGED audio URL
+             setResult(prev => {
+                 if (!prev) return null;
+                 return {
+                     ...prev,
+                     fullAudioUrl: mergedUrl
+                 };
+             });
         }
 
         setStatus(GenerationStatus.SUCCESS);
