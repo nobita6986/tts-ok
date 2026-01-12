@@ -181,7 +181,6 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
   if (config.style && config.style !== 'Tiêu chuẩn') instructionKeywords.push(config.style);
   if (config.instructions) instructionKeywords.push(config.instructions.trim());
 
-  let previousContextSentence = "";
   let firstError: any = null;
 
   // Round-Robin State
@@ -193,6 +192,11 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
       let chunkSuccess = false;
       let chunkError = null;
 
+      // --- CONTEXT PREPARATION ---
+      // Provide ~300 chars of context before and after
+      const prevContext = i > 0 ? textChunks[i - 1].slice(-300).trim() : "";
+      const nextContext = i < textChunks.length - 1 ? textChunks[i + 1].slice(0, 300).trim() : "";
+
       // Try with rotating keys for this chunk
       for (let attempt = 0; attempt < keys.length; attempt++) {
           const currentKeyIndex = (startKeyIndex + attempt) % keys.length;
@@ -201,18 +205,17 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
           try {
               const ai = new GoogleGenAI({ apiKey });
               
-              let promptContext = "";
-              if (i > 0 && previousContextSentence) {
-                  promptContext = `Previous context (for continuity only): "...${previousContextSentence}"`;
-              }
-
+              // More robust prompt engineering for context
               const textToSpeech = `
-                Read the following text in ${langName}.
-                Voice Persona: ${instructionKeywords.join(', ')}.
-                Constraint: Maintain consistent speed and pitch.
-                ${promptContext}
+                Please generate audio for the following text in ${langName}.
                 
-                Text to read:
+                VOICE PERSONA: ${instructionKeywords.join(', ')}.
+
+                CONTEXT (Use this for intonation flow, but DO NOT READ IT ALOUD):
+                - Previous Text: "...${prevContext}"
+                - Following Text: "${nextContext}..."
+
+                TEXT TO READ ALOUD (Read ONLY this content):
                 "${chunk}"
               `.trim();
 
@@ -254,13 +257,7 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
                   config.onSegmentGenerated(segment);
               }
 
-              // Update context
-              const words = chunk.trim().split(/\s+/);
-              const contextLength = Math.min(words.length, 50);
-              previousContextSentence = words.slice(-contextLength).join(" ");
-
               // Success! Update global index for next time to load balance
-              // We set the start index to the next key to distribute load
               localStorage.setItem(GEMINI_INDEX_KEY, ((currentKeyIndex + 1) % keys.length).toString());
               
               // Update local start index for next chunk optimization

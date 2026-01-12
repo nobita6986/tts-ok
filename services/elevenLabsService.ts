@@ -132,6 +132,7 @@ export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ aud
     for (let i = 0; i < textChunks.length; i++) {
         const chunk = textChunks[i];
         
+        // Context Logic: Provide up to 500 chars of context for smooth transitions
         const previousText = i > 0 
             ? textChunks[i - 1].slice(-500).trim() 
             : undefined;
@@ -160,8 +161,9 @@ export const generateSpeechElevenLabs = async (config: TTSConfig): Promise<{ aud
                     }
                 };
 
-                if (previousText) requestBody.previous_text = previousText;
-                if (nextText) requestBody.next_text = nextText;
+                // Add context only if valid
+                if (previousText && previousText.length > 0) requestBody.previous_text = previousText;
+                if (nextText && nextText.length > 0) requestBody.next_text = nextText;
 
                 const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${config.voice}`, {
                     method: 'POST',
