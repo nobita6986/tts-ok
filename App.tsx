@@ -99,6 +99,10 @@ function App() {
     const sessionChunks = splitTextIntoChunks(config.text, AUTO_SPLIT_THRESHOLD);
     const isMultiPart = sessionChunks.length > 1;
 
+    // Trackers for multi-part accumulation
+    let globalSegmentOffset = 0;
+    const accumulatedAudioBlobs: Blob[] = [];
+
     try {
         // Iterate through each session chunk
         for (let i = 0; i < sessionChunks.length; i++) {
@@ -117,24 +121,34 @@ function App() {
                 text: chunkText,
             };
 
-            // Initialize result for this specific chunk so UI shows empty state for it
-            const initialResult: GeneratedAudio = {
-                segments: [],
-                text: chunkText,
-                voice: config.voice,
-                provider: config.provider,
-                language: config.language,
-                timestamp: Date.now()
-            };
-            setResult(initialResult);
+            // INITIALIZE RESULT ON FIRST CHUNK ONLY
+            if (i === 0) {
+                const initialResult: GeneratedAudio = {
+                    segments: [],
+                    text: config.text, // Use FULL text for the main result
+                    voice: config.voice,
+                    provider: config.provider,
+                    language: config.language,
+                    timestamp: Date.now()
+                };
+                setResult(initialResult);
+            }
+
+            // Track max ID in this chunk to update offset later
+            let chunkMaxId = -1;
 
             // Hook up realtime segment callback
             chunkConfig.onSegmentGenerated = (segment: AudioSegment) => {
+                chunkMaxId = Math.max(chunkMaxId, segment.id);
+                // Adjust ID based on global offset
+                const adjustedSegment = { ...segment, id: segment.id + globalSegmentOffset };
+
                 setResult(prev => {
-                    if (!prev) return initialResult;
+                    if (!prev) return null;
+                    // Append new segment
                     return {
                         ...prev,
-                        segments: [...prev.segments, segment]
+                        segments: [...prev.segments, adjustedSegment]
                     };
                 });
             };
@@ -147,16 +161,36 @@ function App() {
                 finalData = await generateSpeechGemini(chunkConfig);
             }
 
-            // Update result with full audio
+            // Update Offset for next loop
+            // If onSegmentGenerated was called, we add (maxId + 1). If not (rare), we assume 0 or handle logic.
+            if (chunkMaxId >= 0) {
+                globalSegmentOffset += (chunkMaxId + 1);
+            }
+
+            // --- HANDLE AUDIO MERGING ---
+            // 1. Fetch the blob from the returned URL of this chunk
+            const response = await fetch(finalData.audioUrl);
+            const blob = await response.blob();
+            accumulatedAudioBlobs.push(blob);
+
+            // 2. Create a merged blob from all previous parts + current part
+            // Note: For WAV (Gemini), simple concatenation is imperfect (headers in middle) but playable in most browsers.
+            // For MP3 (ElevenLabs), this works perfectly.
+            const mergedBlob = new Blob(accumulatedAudioBlobs, { type: blob.type });
+            const mergedUrl = URL.createObjectURL(mergedBlob);
+
+            // 3. Update result with the MERGED audio URL
             setResult(prev => {
                 if (!prev) return null;
                 return {
                     ...prev,
-                    fullAudioUrl: finalData.audioUrl
+                    fullAudioUrl: mergedUrl
                 };
             });
 
-            // Save to Library (Add part number if multipart)
+            // Save to Library (We save individual parts as separate entries for safety, OR valid "checkpoints")
+            // To avoid spamming library with partials, we might only save at the end, 
+            // BUT saving per part is safer for long generations.
             const displayId = isMultiPart ? `${Date.now()}_${i}` : Date.now().toString();
             const displayText = isMultiPart 
                 ? `${config.text.slice(0, 30)}... (Phần ${i+1}/${sessionChunks.length})`
