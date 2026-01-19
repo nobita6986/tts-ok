@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { GeneratedAudio, AudioSegment } from '../types';
 import { VOICES } from '../constants';
-import { Download, RefreshCcw, Volume2, Music, Gauge, Maximize2, Minimize2, Play, Pause, FileAudio, CheckCircle2, Loader2, ArrowDownToLine } from 'lucide-react';
+import { Download, RefreshCcw, Volume2, Music, Play, Pause, FileAudio, CheckCircle2, Loader2, ArrowDownToLine } from 'lucide-react';
 
 interface ScriptOutputProps {
   result: GeneratedAudio;
@@ -102,7 +102,6 @@ const SegmentItem = ({ segment, totalSegments }: { segment: AudioSegment, totalS
 
 export const ScriptOutput: React.FC<ScriptOutputProps> = ({ result, onReset, isGenerating }) => {
   const [activeTab, setActiveTab] = useState<'segments' | 'full'>('segments');
-  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const fullAudioRef = useRef<HTMLAudioElement>(null);
 
   const voiceDetails = VOICES.find(v => v.id === result.voice);
@@ -115,14 +114,6 @@ export const ScriptOutput: React.FC<ScriptOutputProps> = ({ result, onReset, isG
     a.href = result.fullAudioUrl;
     a.download = fileName;
     a.click();
-  };
-
-  const handleSpeedChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newSpeed = parseFloat(e.target.value);
-    setPlaybackSpeed(newSpeed);
-    if (fullAudioRef.current) {
-        fullAudioRef.current.playbackRate = newSpeed;
-    }
   };
 
   useEffect(() => {
@@ -222,19 +213,6 @@ export const ScriptOutput: React.FC<ScriptOutputProps> = ({ result, onReset, isG
                     <div className="w-full max-w-md bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-inner">
                         <div className="flex items-center justify-between mb-4">
                             <div className="text-xs font-bold text-slate-400 uppercase">Trình phát</div>
-                             <div className="flex items-center gap-2">
-                                <Gauge className="w-3.5 h-3.5 text-slate-400" />
-                                <select 
-                                    value={playbackSpeed}
-                                    onChange={handleSpeedChange}
-                                    className="bg-transparent text-xs font-bold text-slate-600 focus:outline-none cursor-pointer"
-                                >
-                                    <option value="0.5">0.5x</option>
-                                    <option value="1.0">1.0x</option>
-                                    <option value="1.5">1.5x</option>
-                                    <option value="2.0">2.0x</option>
-                                </select>
-                            </div>
                         </div>
                         <audio 
                             ref={fullAudioRef}
