@@ -11,7 +11,7 @@ interface ScriptOutputProps {
 }
 
 // Sub-component for individual segment item
-const SegmentItem = ({ segment, totalSegments }: { segment: AudioSegment, totalSegments: number }) => {
+const SegmentItem = ({ segment, provider }: { segment: AudioSegment, provider: string }) => {
     const audioRef = useRef<HTMLAudioElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [showFullText, setShowFullText] = useState(false);
@@ -33,9 +33,10 @@ const SegmentItem = ({ segment, totalSegments }: { segment: AudioSegment, totalS
 
     const handleDownload = (e: React.MouseEvent) => {
         e.stopPropagation();
+        const extension = provider === 'edge' ? 'mp3' : 'wav';
         const a = document.createElement('a');
         a.href = segment.audioUrl;
-        a.download = `part-${segment.id + 1}.wav`;
+        a.download = `part-${segment.id + 1}.${extension}`;
         a.click();
     };
 
@@ -101,26 +102,27 @@ const SegmentItem = ({ segment, totalSegments }: { segment: AudioSegment, totalS
 };
 
 export const ScriptOutput: React.FC<ScriptOutputProps> = ({ result, onReset, isGenerating }) => {
-  const [activeTab, setActiveTab] = useState<'segments' | 'full'>('segments');
-  const fullAudioRef = useRef<HTMLAudioElement>(null);
-
+  const [activeTab, setActiveTab] = useState<'segments'>('segments');
   const voiceDetails = VOICES.find(v => v.id === result.voice);
 
-  const handleDownloadFull = () => {
-    if (!result.fullAudioUrl) return;
-    const now = new Date();
-    const fileName = `full-audio-${now.getTime()}.wav`;
-    const a = document.createElement('a');
-    a.href = result.fullAudioUrl;
-    a.download = fileName;
-    a.click();
-  };
-
-  useEffect(() => {
-    if (result.fullAudioUrl) {
-        setActiveTab('full'); // Switch to full player when done
+  const handleDownloadAll = async () => {
+    if (result.segments.length === 0) return;
+    
+    const extension = result.provider === 'edge' ? 'mp3' : 'wav';
+    
+    // Download each segment with a small delay to avoid browser blocking
+    for (let i = 0; i < result.segments.length; i++) {
+        const segment = result.segments[i];
+        const a = document.createElement('a');
+        a.href = segment.audioUrl;
+        a.download = `audio-part-${segment.id + 1}.${extension}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // Small delay between downloads
+        await new Promise(resolve => setTimeout(resolve, 300));
     }
-  }, [result.fullAudioUrl]);
+  };
 
   return (
     <div className="animate-fade-in h-full">
@@ -153,20 +155,22 @@ export const ScriptOutput: React.FC<ScriptOutputProps> = ({ result, onReset, isG
            </div>
         </div>
 
-        {/* Tabs / Controls */}
-        <div className="border-b border-slate-100 px-6 py-3 flex items-center gap-4 bg-slate-50/50 shrink-0">
-            <button 
-                onClick={() => setActiveTab('segments')}
-                className={`text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-all ${activeTab === 'segments' ? 'bg-slate-200 text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
-            >
-                Danh sách đoạn ({result.segments.length})
-            </button>
-            {result.fullAudioUrl && (
+        {/* Header Controls */}
+        <div className="border-b border-slate-100 px-6 py-3 flex items-center justify-between bg-slate-50/50 shrink-0">
+            <div className="flex items-center gap-4">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                    Danh sách đoạn ({result.segments.length})
+                </span>
+            </div>
+            
+            {!isGenerating && result.segments.length > 0 && (
                 <button 
-                    onClick={() => setActiveTab('full')}
-                    className={`text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 ${activeTab === 'full' ? 'bg-brand-100 text-brand-700' : 'text-slate-400 hover:text-slate-600'}`}
+                    onClick={handleDownloadAll}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-lg transition-all shadow-sm hover:shadow-md"
+                    title="Tải tất cả các đoạn"
                 >
-                    <FileAudio className="w-3.5 h-3.5" /> File Gộp
+                    <Download className="w-3.5 h-3.5" />
+                    Tải tất cả
                 </button>
             )}
         </div>
@@ -174,63 +178,28 @@ export const ScriptOutput: React.FC<ScriptOutputProps> = ({ result, onReset, isG
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto bg-white relative">
             
-            {activeTab === 'segments' && (
-                <div className="p-6 space-y-4">
-                    {result.segments.map((seg) => (
-                        <div key={seg.id} className="animate-slide-up">
-                            <SegmentItem segment={seg} totalSegments={result.segments.length} />
-                        </div>
-                    ))}
-                    
-                    {isGenerating && (
-                        <div className="flex items-center justify-center py-8 gap-2 text-slate-400 animate-pulse">
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            <span className="text-sm font-medium">Đang tạo đoạn tiếp theo...</span>
-                        </div>
-                    )}
-
-                    {!isGenerating && result.segments.length > 0 && (
-                        <div className="text-center py-4">
-                            <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 rounded-full text-xs font-bold border border-green-100">
-                                <CheckCircle2 className="w-4 h-4" /> Hoàn tất
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {activeTab === 'full' && result.fullAudioUrl && (
-                <div className="p-8 flex flex-col items-center justify-center h-full space-y-6 animate-fade-in">
-                    <div className="w-20 h-20 bg-gradient-to-tr from-brand-500 to-indigo-500 rounded-full flex items-center justify-center shadow-xl shadow-brand-500/20 mb-2">
-                        <Music className="w-10 h-10 text-white" />
+            <div className="p-6 space-y-4">
+                {result.segments.map((seg) => (
+                    <div key={seg.id} className="animate-slide-up">
+                        <SegmentItem segment={seg} provider={result.provider} />
                     </div>
-                    
-                    <div className="text-center space-y-1">
-                        <h4 className="text-lg font-bold text-slate-800">File Âm thanh Hoàn chỉnh</h4>
-                        <p className="text-sm text-slate-500">Đã gộp {result.segments.length} đoạn thành công</p>
+                ))}
+                
+                {isGenerating && (
+                    <div className="flex items-center justify-center py-8 gap-2 text-slate-400 animate-pulse">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span className="text-sm font-medium">Đang tạo đoạn tiếp theo...</span>
                     </div>
+                )}
 
-                    <div className="w-full max-w-md bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-inner">
-                        <div className="flex items-center justify-between mb-4">
-                            <div className="text-xs font-bold text-slate-400 uppercase">Trình phát</div>
+                {!isGenerating && result.segments.length > 0 && (
+                    <div className="text-center py-4">
+                        <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-50 text-green-700 rounded-full text-xs font-bold border border-green-100">
+                            <CheckCircle2 className="w-4 h-4" /> Hoàn tất
                         </div>
-                        <audio 
-                            ref={fullAudioRef}
-                            controls 
-                            src={result.fullAudioUrl} 
-                            className="w-full h-10 rounded-lg"
-                        />
                     </div>
-
-                    <button 
-                        onClick={handleDownloadFull}
-                        className="flex items-center gap-2 px-8 py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
-                    >
-                        <Download className="w-5 h-5" />
-                        Tải xuống File Gộp (WAV)
-                    </button>
-                </div>
-            )}
+                )}
+            </div>
         </div>
       </div>
     </div>

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { ScriptForm } from './components/ScriptForm';
 import { ScriptOutput } from './components/ScriptOutput';
 import { generateSpeechGemini, getStoredApiKeys, setStoredApiKeys, splitTextIntoChunks } from './services/geminiService';
-import { generateSpeechElevenLabs, getStoredElevenLabsKeys, setStoredElevenLabsKeys } from './services/elevenLabsService';
+import { generateSpeechEdge } from './services/edgeService';
 import { TTSConfig, GeneratedAudio, GenerationStatus, SavedScript, AudioSegment, TTSProvider } from './types';
 import { APP_BACKGROUNDS, AUTO_SPLIT_THRESHOLD } from './constants';
 import { Mic, Sparkles, Volume2, Palette, Settings, Key, X, ExternalLink, ShieldCheck, AlertCircle, Activity, Info, BookOpen, History, Trash2, ArrowRightCircle, Facebook, Shield, Globe, Save, Server, Fingerprint, Zap } from 'lucide-react';
@@ -16,7 +16,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   
   // Lifted Provider State
-  const [currentProvider, setCurrentProvider] = useState<TTSProvider>('gemini');
+  const [currentProvider, setCurrentProvider] = useState<TTSProvider>('edge');
 
   // Random background on initialization
   const [bgColor, setBgColor] = useState(() => {
@@ -27,14 +27,7 @@ function App() {
   // API Keys State
   const [showApiModal, setShowApiModal] = useState(false);
   const [geminiKeysText, setGeminiKeysText] = useState("");
-  const [elevenLabsKeysText, setElevenLabsKeysText] = useState("");
   const [hasGemini, setHasGemini] = useState(false);
-  const [hasElevenLabs, setHasElevenLabs] = useState(false);
-
-  // Proxy State
-  const [showProxyModal, setShowProxyModal] = useState(false);
-  const [proxyKeysText, setProxyKeysText] = useState("");
-  const [isProxyEnabled, setIsProxyEnabled] = useState(false);
 
   // Guide & Library State
   const [showGuideModal, setShowGuideModal] = useState(false);
@@ -55,10 +48,6 @@ function App() {
     const geminiKeys = getStoredApiKeys();
     setGeminiKeysText(geminiKeys.join('\n'));
     setHasGemini(geminiKeys.length > 0 || !!process.env.API_KEY);
-
-    const elKeys = getStoredElevenLabsKeys();
-    setElevenLabsKeysText(elKeys.join('\n'));
-    setHasElevenLabs(elKeys.length > 0);
   }, []);
 
   // Save library to local storage with safety check
@@ -83,11 +72,6 @@ function App() {
     if (config.provider === 'gemini' && !hasGemini) {
       setShowApiModal(true);
       setError("Vui lòng cấu hình Gemini API Key.");
-      return;
-    }
-    if (config.provider === 'elevenlabs' && !hasElevenLabs) {
-      setShowApiModal(true);
-      setError("Vui lòng cấu hình ElevenLabs API Key.");
       return;
     }
 
@@ -155,11 +139,10 @@ function App() {
             };
 
             // Call API
-            let finalData;
-            if (config.provider === 'elevenlabs') {
-                finalData = await generateSpeechElevenLabs(chunkConfig);
+            if (config.provider === 'edge') {
+                await generateSpeechEdge(chunkConfig);
             } else {
-                finalData = await generateSpeechGemini(chunkConfig);
+                await generateSpeechGemini(chunkConfig);
             }
 
             // Update Offset for next loop
@@ -168,16 +151,7 @@ function App() {
                 globalSegmentOffset += (chunkMaxId + 1);
             }
 
-            // --- COLLECT AUDIO ---
-            // 1. Fetch the blob from the returned URL of this chunk
-            const response = await fetch(finalData.audioUrl);
-            const blob = await response.blob();
-            accumulatedAudioBlobs.push(blob);
-            lastBlobType = blob.type;
-
             // Save to Library (We save individual parts as separate entries for safety, OR valid "checkpoints")
-            // To avoid spamming library with partials, we might only save at the end, 
-            // BUT saving per part is safer for long generations.
             const displayId = isMultiPart ? `${Date.now()}_${i}` : Date.now().toString();
             const displayText = isMultiPart 
                 ? `${config.text.slice(0, 30)}... (Phần ${i+1}/${sessionChunks.length})`
@@ -193,7 +167,6 @@ function App() {
                 style: config.style || "Tiêu chuẩn",
                 instructions: config.instructions || "",
                 timestamp: Date.now(),
-                elevenLabsModel: config.elevenLabsModel,
                 geminiModel: config.geminiModel
             };
             
@@ -205,27 +178,8 @@ function App() {
             }
         }
 
-        // --- MERGE AUDIO AT THE END ---
-        if (accumulatedAudioBlobs.length > 0) {
-             // Create a merged blob from all previous parts + current part
-             // Note: For WAV (Gemini), simple concatenation is imperfect (headers in middle) but playable in most browsers.
-             // For MP3 (ElevenLabs), this works perfectly.
-             const mergedBlob = new Blob(accumulatedAudioBlobs, { type: lastBlobType });
-             const mergedUrl = URL.createObjectURL(mergedBlob);
-
-             // Update result with the MERGED audio URL
-             setResult(prev => {
-                 if (!prev) return null;
-                 return {
-                     ...prev,
-                     fullAudioUrl: mergedUrl
-                 };
-             });
-        }
-
         setStatus(GenerationStatus.SUCCESS);
         setStatusMessage("");
-
     } catch (err: any) {
         setError(err.message || "Đã xảy ra lỗi khi tạo giọng nói.");
         setStatus(GenerationStatus.ERROR);
@@ -248,10 +202,6 @@ function App() {
     setStoredApiKeys(geminiKeysList);
     setHasGemini(geminiKeysList.length > 0 || !!process.env.API_KEY);
 
-    const elKeysList = elevenLabsKeysText.split('\n').map(k => k.trim()).filter(k => k.length > 0);
-    setStoredElevenLabsKeys(elKeysList);
-    setHasElevenLabs(elKeysList.length > 0);
-
     setShowApiModal(false);
     setError(null);
   };
@@ -264,20 +214,6 @@ function App() {
     if (window.confirm("Bạn có chắc chắn muốn xóa toàn bộ kịch bản đã lưu? Hành động này không thể hoàn tác.")) {
       setLibrary([]);
     }
-  };
-
-  const toggleProvider = () => {
-      setCurrentProvider(prev => prev === 'gemini' ? 'elevenlabs' : 'gemini');
-  };
-
-  // Proxy Handlers (Placeholder for future logic)
-  const handleCheckProxyIP = () => {
-      alert("Chức năng kiểm tra IP sẽ được cập nhật sau.");
-  };
-
-  const handleSaveProxy = () => {
-      alert("Đã lưu cấu hình Proxy (Mô phỏng).");
-      setShowProxyModal(false);
   };
 
   return (
@@ -322,29 +258,6 @@ function App() {
                    <ShieldCheck className="w-3 h-3 text-emerald-500" />
                    Hệ thống sẽ tự động xoay vòng (Round-Robin) các Key để tránh giới hạn.
                  </p>
-              </div>
-
-              {/* ElevenLabs Section */}
-              <div className="space-y-3 pt-4 border-t border-slate-800">
-                 <div className="flex items-center justify-between">
-                    <label className="text-sm font-bold text-indigo-400 flex items-center gap-2">
-                      <Activity className="w-4 h-4" /> ElevenLabs API Keys
-                    </label>
-                    <a href="https://elevenlabs.io/app/speech-synthesis" target="_blank" rel="noreferrer" className="text-xs text-slate-500 hover:text-indigo-400 flex items-center gap-1 transition-colors">
-                      Lấy Key <ExternalLink className="w-3 h-3" />
-                    </a>
-                 </div>
-                 <div className="relative">
-                   <textarea
-                     value={elevenLabsKeysText}
-                     onChange={(e) => setElevenLabsKeysText(e.target.value)}
-                     placeholder="Nhập danh sách API Key (mỗi dòng 1 key)..."
-                     className="w-full h-24 bg-slate-950 border border-slate-700 rounded-xl p-4 text-white placeholder-slate-600 focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono text-sm resize-none custom-scrollbar"
-                   />
-                   <div className="absolute bottom-3 right-3 text-[10px] text-slate-500 bg-slate-900/80 px-2 py-1 rounded">
-                     {elevenLabsKeysText.split('\n').filter(k => k.trim()).length} Keys
-                   </div>
-                 </div>
               </div>
 
               <div className="flex justify-end gap-3 pt-2">
@@ -402,7 +315,7 @@ function App() {
                          <div className="flex justify-between items-start gap-4">
                             <div className="flex-1 min-w-0">
                                <div className="flex items-center gap-2 mb-2">
-                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${item.provider === 'gemini' ? 'bg-brand-900/50 text-brand-400' : 'bg-indigo-900/50 text-indigo-400'}`}>
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase bg-brand-900/50 text-brand-400">
                                     {item.provider}
                                   </span>
                                   <span className="text-[10px] text-slate-500 bg-slate-950 px-1.5 py-0.5 rounded">
@@ -459,7 +372,7 @@ function App() {
                 <div className="bg-gradient-to-r from-slate-800 to-slate-900 p-6 rounded-2xl border border-slate-700 relative overflow-hidden">
                    <div className="absolute top-0 right-0 p-4 opacity-10"><Sparkles className="w-24 h-24" /></div>
                    <h3 className="text-xl font-bold text-white mb-2">Chào mừng đến với Studio Giọng Nói AI</h3>
-                   <p className="text-slate-300 text-sm">Công cụ chuyển đổi văn bản thành giọng nói (TTS) mạnh mẽ, kết hợp sức mạnh của Google Gemini và ElevenLabs.</p>
+                   <p className="text-slate-300 text-sm">Công cụ chuyển đổi văn bản thành giọng nói (TTS) mạnh mẽ, kết hợp sức mạnh của Google Gemini.</p>
                 </div>
 
                 {/* 2. Feature Grid (Updated) */}
@@ -473,16 +386,6 @@ function App() {
                           </div>
                           <p className="text-xs text-slate-400 leading-relaxed">
                               Tùy chọn giữa <strong>Flash</strong> (Tốc độ cao) và <strong>Pro</strong> (Chất lượng cao, biểu cảm tốt) cho nhu cầu khác nhau.
-                          </p>
-                      </div>
-
-                      {/* Voice Cloning */}
-                      <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 hover:border-indigo-500/50 transition-colors">
-                          <div className="flex items-center gap-2 mb-2 text-indigo-400 font-bold">
-                              <Fingerprint className="w-4 h-4" /> Voice Cloning & ElevenLabs
-                          </div>
-                          <p className="text-xs text-slate-400 leading-relaxed">
-                              Tạo giọng nói giống hệt người thật (Voice Cloning) hoặc sử dụng kho giọng đa ngôn ngữ chất lượng cao của ElevenLabs.
                           </p>
                       </div>
                       
@@ -519,7 +422,7 @@ function App() {
                           </div>
                           <div className="pb-6">
                               <h4 className="text-white font-bold text-sm mb-1">Cấu hình API Key</h4>
-                              <p className="text-xs text-slate-400">Nhấn nút <strong>Cấu hình API</strong>. Nhập key từ Google AI Studio (miễn phí) hoặc ElevenLabs. Bạn có thể nhập nhiều key (mỗi key một dòng) để dùng lâu hơn.</p>
+                              <p className="text-xs text-slate-400">Nhấn nút <strong>Cấu hình API</strong>. Nhập key từ Google AI Studio (miễn phí). Bạn có thể nhập nhiều key (mỗi key một dòng) để dùng lâu hơn.</p>
                           </div>
                       </div>
 
@@ -529,8 +432,8 @@ function App() {
                               <div className="h-full w-px bg-slate-800 my-2"></div>
                           </div>
                           <div className="pb-6">
-                              <h4 className="text-white font-bold text-sm mb-1">Chọn Nhà cung cấp & Model</h4>
-                              <p className="text-xs text-slate-400">Gạt nút chuyển đổi giữa <strong>Gemini</strong> và <strong>ElevenLabs</strong> trên thanh menu. Chọn Model phù hợp (ví dụ: Gemini 2.5 Pro cho audiobooks).</p>
+                              <h4 className="text-white font-bold text-sm mb-1">Chọn Model</h4>
+                              <p className="text-xs text-slate-400">Chọn Model phù hợp (ví dụ: Gemini 2.5 Pro cho audiobooks).</p>
                           </div>
                       </div>
 
@@ -541,105 +444,10 @@ function App() {
                           <div>
                               <h4 className="text-white font-bold text-sm mb-1">Tùy chỉnh & Tạo</h4>
                               <p className="text-xs text-slate-400 mb-2">Chọn Ngôn ngữ, Giọng đọc. Mở phần <strong>Tùy chỉnh nâng cao</strong> để chỉnh Tone (Cảm xúc) và Style (Phong cách).</p>
-                              <div className="bg-yellow-900/20 border border-yellow-700/30 p-3 rounded-lg flex items-start gap-2">
-                                  <Zap className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
-                                  <p className="text-[10px] text-yellow-500/90 font-medium">Mẹo: Với ElevenLabs, bạn có thể nhấn "Tạo giọng mới" để Clone giọng từ file âm thanh mẫu.</p>
-                              </div>
                           </div>
                       </div>
                    </div>
                 </div>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* --- PROXY MODAL --- */}
-      {showProxyModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-           <div className="bg-[#0f172a] border border-slate-700 w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden animate-slide-up flex flex-col">
-              {/* Modal Header */}
-              <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
-                <div className="flex items-center gap-3">
-                   <div className="w-2 h-2 rounded-full bg-slate-500"></div>
-                   <div>
-                       <h2 className="text-lg font-bold text-white leading-none">Cấu hình Multi-Proxy (Pool)</h2>
-                       <p className="text-[10px] text-slate-400 mt-1">Chỉ áp dụng cho ElevenLabs. Gemini sẽ kết nối trực tiếp.</p>
-                   </div>
-                </div>
-                <div className="flex items-center gap-4">
-                    {/* Toggle Switch */}
-                    <div 
-                        onClick={() => setIsProxyEnabled(!isProxyEnabled)}
-                        className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-300 ${isProxyEnabled ? 'bg-white' : 'bg-slate-700'}`}
-                    >
-                        <div className={`bg-slate-900 w-4 h-4 rounded-full shadow-md transform duration-300 ease-in-out ${isProxyEnabled ? 'translate-x-5' : ''}`}></div>
-                    </div>
-                    <button onClick={() => setShowProxyModal(false)} className="text-slate-400 hover:text-white transition-colors">
-                        <X className="w-5 h-5" />
-                    </button>
-                </div>
-              </div>
-
-              {/* Modal Body */}
-              <div className="p-6 space-y-6">
-                 
-                 {/* Input Area */}
-                 <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                        <label className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5">
-                            <Key className="w-3.5 h-3.5" /> 
-                            DANH SÁCH PROXY API KEY (MỖI DÒNG 1 KEY)
-                        </label>
-                        <a href="https://proxy.vn/?home=proxyxoay" target="_blank" rel="noopener noreferrer" className="text-xs text-emerald-400 hover:text-emerald-300 font-medium hover:underline">(Mua key tại đây)</a>
-                    </div>
-                    <textarea 
-                        value={proxyKeysText}
-                        onChange={(e) => setProxyKeysText(e.target.value)}
-                        placeholder="Nhập API Key Proxy tại đây..."
-                        className="w-full h-32 bg-[#020617] border border-slate-700 rounded-lg p-3 text-white font-mono text-sm focus:outline-none focus:border-slate-500 placeholder-slate-600 resize-none custom-scrollbar"
-                        spellCheck={false}
-                    />
-                    <p className="text-xs text-slate-500">Hệ thống sẽ dùng tất cả Key để tạo Pool Proxy cho ElevenLabs.</p>
-                 </div>
-
-                 {/* Action Buttons */}
-                 <div className="grid grid-cols-2 gap-4">
-                     <button 
-                        onClick={handleCheckProxyIP}
-                        className="flex items-center justify-center gap-2 py-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm transition-colors border border-slate-600"
-                     >
-                         <Globe className="w-4 h-4" /> Kiểm tra IP
-                     </button>
-                     <button 
-                        onClick={handleSaveProxy}
-                        className="flex items-center justify-center gap-2 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm transition-colors shadow-lg shadow-emerald-900/20"
-                     >
-                         <Save className="w-4 h-4" /> Lưu & Lấy Proxy
-                     </button>
-                 </div>
-
-                 {/* Pool Status */}
-                 <div className="bg-[#1e293b]/50 border border-slate-700/50 rounded-lg p-4 flex items-center gap-3">
-                     <Server className="w-5 h-5 text-indigo-400" />
-                     <div>
-                         <div className="text-[10px] font-bold text-slate-500 uppercase">TRẠNG THÁI POOL</div>
-                         <div className="text-sm font-medium text-slate-300">Chưa có proxy nào trong Pool</div>
-                     </div>
-                 </div>
-
-                 {/* IP Check Info */}
-                 <div className="grid grid-cols-2 gap-4">
-                     <div className="bg-[#020617] border border-slate-800 rounded-lg p-3">
-                         <div className="text-[10px] text-slate-500 mb-1">IP Máy (Gốc):</div>
-                         <div className="text-sm font-bold text-white font-mono">Chưa kiểm tra</div>
-                     </div>
-                     <div className="bg-[#020617] border border-slate-800 rounded-lg p-3">
-                         <div className="text-[10px] text-slate-500 mb-1">IP Tool (Proxy):</div>
-                         <div className="text-sm font-bold text-slate-500 font-mono">Chưa kiểm tra</div>
-                     </div>
-                 </div>
-
               </div>
            </div>
         </div>
@@ -686,40 +494,12 @@ function App() {
                   <Mic className="w-5 h-5" />
                 </div>
                 <span className={`text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r ${bgColor.isLight ? 'from-slate-800 to-slate-500' : 'from-white to-slate-400'}`}>
-                  App Tạo và Clone Giọng Nói
+                  App Tạo Giọng Nói của AI86.PRO
                 </span>
              </div>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
-            {/* New Toggle Button Component */}
-            <div 
-              onClick={toggleProvider}
-              className={`relative h-9 w-40 sm:w-48 rounded-lg cursor-pointer border p-0.5 flex items-center transition-all ${bgColor.isLight ? 'bg-slate-100 border-slate-300' : 'bg-slate-900 border-slate-700'}`}
-            >
-                {/* Sliding Pill */}
-                <div 
-                  className={`absolute top-0.5 bottom-0.5 w-[calc(50%-2px)] rounded-md shadow-sm transition-all duration-300 ease-out transform ${
-                    currentProvider === 'gemini' 
-                      ? 'translate-x-0 bg-white' 
-                      : 'translate-x-full bg-indigo-600'
-                  }`}
-                ></div>
-                
-                {/* Text Labels */}
-                <div className={`relative z-10 w-1/2 flex items-center justify-center gap-1.5 text-xs font-bold uppercase transition-colors duration-300 ${currentProvider === 'gemini' ? 'text-brand-600' : 'text-slate-500 hover:text-slate-400'}`}>
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Gemini</span>
-                </div>
-                <div className={`relative z-10 w-1/2 flex items-center justify-center gap-1.5 text-xs font-bold uppercase transition-colors duration-300 ${currentProvider === 'elevenlabs' ? 'text-white' : 'text-slate-500 hover:text-slate-400'}`}>
-                    <Activity className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">ElevenLabs</span>
-                    <span className="sm:hidden">11Labs</span>
-                </div>
-            </div>
-
-            <div className="w-px h-6 bg-slate-700/50 mx-1 hidden sm:block"></div>
-
             {/* Guide Button */}
             <button
                onClick={() => setShowGuideModal(true)}
@@ -743,21 +523,11 @@ function App() {
                )}
             </button>
 
-            {/* Proxy Button */}
-            <button 
-              onClick={() => setShowProxyModal(true)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all text-xs font-semibold ${bgColor.isLight ? 'border-slate-300 bg-white/50 hover:bg-white text-slate-700' : 'border-white/10 bg-white/5 hover:bg-white/10 text-slate-300'}`}
-              title="Cấu hình Proxy (ElevenLabs)"
-            >
-              <Shield className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Proxy</span>
-            </button>
-
             {/* Config Button */}
             <button 
               onClick={() => setShowApiModal(true)}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all text-xs font-semibold ${
-                (hasGemini || hasElevenLabs)
+                (hasGemini)
                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20' 
                 : 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20 animate-pulse'
               }`}
@@ -793,6 +563,7 @@ function App() {
           <div className={`lg:col-span-5 flex flex-col transition-all duration-500 ${status === GenerationStatus.SUCCESS || (result && result.segments.length > 0) ? 'hidden xl:flex' : ''}`}>
                <ScriptForm 
                  selectedProvider={currentProvider}
+                 onProviderChange={setCurrentProvider}
                  onGenerateAudio={handleGenerateAudio}
                  isGenerating={status === GenerationStatus.GENERATING}
                  loadedScript={selectedScript}
@@ -825,9 +596,9 @@ function App() {
                     </div>
                     <h3 className={`text-2xl font-medium mb-3 ${bgColor.isLight ? 'text-slate-800' : 'text-white'}`}>Studio Giọng nói Chuyên nghiệp</h3>
                     <p className={`max-w-md leading-relaxed ${bgColor.isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-                      Chọn Nhà cung cấp ở trên (Gemini/ElevenLabs), ngôn ngữ, giọng đọc và nhập văn bản để bắt đầu.
+                      Chọn ngôn ngữ, giọng đọc và nhập văn bản để bắt đầu.
                     </p>
-                    {(!hasGemini && !hasElevenLabs) && (
+                    {(!hasGemini) && (
                       <button 
                         onClick={() => setShowApiModal(true)}
                         className="mt-8 px-6 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-full font-bold shadow-lg shadow-brand-600/20 transition-all flex items-center gap-2"

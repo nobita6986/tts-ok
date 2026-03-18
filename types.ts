@@ -1,5 +1,5 @@
 
-export type TTSProvider = 'gemini' | 'elevenlabs';
+export type TTSProvider = 'gemini' | 'edge';
 
 export interface TTSConfig {
   text: string;
@@ -13,7 +13,6 @@ export interface TTSConfig {
   audioSample?: string;
   audioMimeType?: string;
   isPreview?: boolean; 
-  elevenLabsModel?: string;
   geminiModel?: string; // New field for Gemini Model
   // Callback for streaming segments
   onSegmentGenerated?: (segment: AudioSegment) => void;
@@ -46,7 +45,6 @@ export interface SavedScript {
   style: string;
   instructions: string;
   timestamp: number;
-  elevenLabsModel?: string; 
   geminiModel?: string;
 }
 
