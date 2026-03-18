@@ -18,7 +18,7 @@ export const PROVIDERS = [
 
 // Threshold to automatically split requests into separate library entries
 // 2500 is safe and keeps Gemini generation snappy
-export const AUTO_SPLIT_THRESHOLD = 2500; 
+export const AUTO_SPLIT_THRESHOLD = 1000; 
 
 export const GEMINI_MODELS = [
   {
