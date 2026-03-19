@@ -18,24 +18,14 @@ export const PROVIDERS = [
 
 export const GEMINI_MODELS = [
   {
-    id: 'gemini-3.0-flash-preview-tts',
-    name: 'Gemini 3.0 Flash (Mới nhất - Nhanh)',
-    description: 'Model mới nhất, tối ưu tốc độ, độ trễ thấp, chi phí tiết kiệm. Phù hợp hội thoại thời gian thực.'
-  },
-  {
-    id: 'gemini-3.0-pro-preview-tts',
-    name: 'Gemini 3.0 Pro (Mới nhất - Chất lượng cao)',
-    description: 'Model mới nhất, chất lượng âm thanh cao nhất, độ biểu cảm tốt, phù hợp audiobook, thuyết minh.'
-  },
-  {
     id: 'gemini-2.5-flash-preview-tts',
-    name: 'Gemini 2.5 Flash (Nhanh)',
-    description: 'Tối ưu tốc độ, độ trễ thấp, chi phí tiết kiệm. Phù hợp hội thoại thời gian thực.'
+    name: 'Gemini 2.5 Flash (Mặc định - Nhanh)',
+    description: 'Model tối ưu tốc độ, độ trễ thấp, chi phí tiết kiệm. Phù hợp hội thoại thời gian thực.'
   },
   {
     id: 'gemini-2.5-pro-preview-tts',
-    name: 'Gemini 2.5 Pro (Chất lượng cao)',
-    description: 'Chất lượng âm thanh cao nhất, độ biểu cảm tốt, phù hợp audiobook, thuyết minh.'
+    name: 'Gemini 2.5 Pro (Chất lượng cao - Thử nghiệm)',
+    description: 'Model chất lượng cao, độ biểu cảm tốt hơn. Lưu ý: Có thể chưa khả dụng ở một số vùng hoặc tài khoản.'
   }
 ];
 

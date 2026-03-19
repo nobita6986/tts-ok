@@ -114,7 +114,15 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
   const audioParts: Uint8Array[] = [];
 
   // Use selected model or default to flash
-  const ttsModel = config.geminiModel || GEMINI_MODELS[0].id;
+  let ttsModel = config.geminiModel || GEMINI_MODELS[0].id;
+  
+  // Validate model ID - if it's an old 3.0 ID or not in our list, fallback to default
+  const validModelIds = GEMINI_MODELS.map(m => m.id);
+  if (!validModelIds.includes(ttsModel)) {
+      console.warn(`Model ID ${ttsModel} is invalid or deprecated. Falling back to ${GEMINI_MODELS[0].id}`);
+      ttsModel = GEMINI_MODELS[0].id;
+  }
+
   const targetVoice = rawVoiceName;
 
   // Build Persona Instructions
@@ -159,16 +167,38 @@ export const generateSpeechGemini = async (config: TTSConfig): Promise<{ audioUr
                 "${chunk}"
               `.trim();
 
-              const ttsResponse = await ai.models.generateContent({
-                  model: ttsModel,
-                  contents: [{ parts: [{ text: textToSpeech }] }],
-                  config: {
-                    responseModalities: [Modality.AUDIO],
-                    speechConfig: {
-                        voiceConfig: { prebuiltVoiceConfig: { voiceName: targetVoice as any } },
-                    },
-                  },
-              });
+              let ttsResponse;
+              try {
+                  ttsResponse = await ai.models.generateContent({
+                      model: ttsModel,
+                      contents: [{ parts: [{ text: textToSpeech }] }],
+                      config: {
+                        responseModalities: [Modality.AUDIO],
+                        speechConfig: {
+                            voiceConfig: { prebuiltVoiceConfig: { voiceName: targetVoice as any } },
+                        },
+                      },
+                  });
+              } catch (modelError: any) {
+                  const modelMsg = (modelError.message || "").toLowerCase();
+                  // If 404 and we were using Pro, try falling back to Flash immediately with the same key
+                  if ((modelMsg.includes("404") || modelMsg.includes("not_found")) && ttsModel.includes("pro")) {
+                      console.warn("Pro model not found (404), falling back to Flash model.");
+                      ttsModel = GEMINI_MODELS[0].id; // Switch to Flash
+                      ttsResponse = await ai.models.generateContent({
+                          model: ttsModel,
+                          contents: [{ parts: [{ text: textToSpeech }] }],
+                          config: {
+                            responseModalities: [Modality.AUDIO],
+                            speechConfig: {
+                                voiceConfig: { prebuiltVoiceConfig: { voiceName: targetVoice as any } },
+                            },
+                          },
+                      });
+                  } else {
+                      throw modelError; // Rethrow if not a 404 or not Pro
+                  }
+              }
 
               if (!ttsResponse.candidates || ttsResponse.candidates.length === 0) {
                  throw new Error("Safety Block: Bộ lọc an toàn chặn phản hồi.");
