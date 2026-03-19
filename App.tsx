@@ -2,10 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { ScriptForm } from './components/ScriptForm';
 import { ScriptOutput } from './components/ScriptOutput';
-import { generateSpeechGemini, getStoredApiKeys, setStoredApiKeys, splitTextIntoChunks } from './services/geminiService';
+import { generateSpeechGemini, getStoredApiKeys, setStoredApiKeys } from './services/geminiService';
 import { generateSpeechEdge } from './services/edgeService';
 import { TTSConfig, GeneratedAudio, GenerationStatus, SavedScript, AudioSegment, TTSProvider } from './types';
-import { APP_BACKGROUNDS, AUTO_SPLIT_THRESHOLD } from './constants';
+import { APP_BACKGROUNDS } from './constants';
 import { Mic, Sparkles, Volume2, Palette, Settings, Key, X, ExternalLink, ShieldCheck, AlertCircle, Activity, Info, BookOpen, History, Trash2, ArrowRightCircle, Facebook, Shield, Globe, Save, Server, Fingerprint, Zap } from 'lucide-react';
 
 function App() {
@@ -32,6 +32,8 @@ function App() {
   // Guide & Library State
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [showLibraryModal, setShowLibraryModal] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingConfig, setPendingConfig] = useState<TTSConfig | null>(null);
   const [library, setLibrary] = useState<SavedScript[]>(() => {
      try {
          const saved = localStorage.getItem('TTS_SCRIPT_LIBRARY');
@@ -75,109 +77,68 @@ function App() {
       return;
     }
 
+    if (config.text.length > 3000) {
+      setPendingConfig(config);
+      setShowConfirmModal(true);
+      return;
+    }
+
+    startGeneration(config);
+  };
+
+  const startGeneration = async (config: TTSConfig) => {
     setStatus(GenerationStatus.GENERATING);
     setError(null);
     setStatusMessage("Đang khởi tạo...");
 
-    // Split text into sessions if too long
-    const sessionChunks = splitTextIntoChunks(config.text, AUTO_SPLIT_THRESHOLD);
-    const isMultiPart = sessionChunks.length > 1;
-
-    // Trackers for multi-part accumulation
-    let globalSegmentOffset = 0;
-    const accumulatedAudioBlobs: Blob[] = [];
-    let lastBlobType = 'audio/mpeg';
-
     try {
-        // Iterate through each session chunk
-        for (let i = 0; i < sessionChunks.length; i++) {
-            const chunkText = sessionChunks[i];
-            
-            // Update UI Message
-            if (isMultiPart) {
-                setStatusMessage(`Đang xử lý Phần ${i + 1} / ${sessionChunks.length}... (Tự động chia nhỏ văn bản dài)`);
-            } else {
-                setStatusMessage("Đang tổng hợp âm thanh...");
-            }
+        setStatusMessage("Đang tổng hợp âm thanh...");
 
-            // Prepare chunk config
-            const chunkConfig: TTSConfig = {
-                ...config,
-                text: chunkText,
-            };
+        // Prepare result
+        const initialResult: GeneratedAudio = {
+            segments: [],
+            text: config.text,
+            voice: config.voice,
+            provider: config.provider,
+            language: config.language,
+            timestamp: Date.now()
+        };
+        setResult(initialResult);
 
-            // INITIALIZE RESULT ON FIRST CHUNK ONLY
-            if (i === 0) {
-                const initialResult: GeneratedAudio = {
-                    segments: [],
-                    text: config.text, // Use FULL text for the main result
-                    voice: config.voice,
-                    provider: config.provider,
-                    language: config.language,
-                    timestamp: Date.now()
+        // Hook up realtime segment callback
+        config.onSegmentGenerated = (segment: AudioSegment) => {
+            setResult(prev => {
+                if (!prev) return null;
+                // Append new segment
+                return {
+                    ...prev,
+                    segments: [...prev.segments, segment]
                 };
-                setResult(initialResult);
-            }
+            });
+        };
 
-            // Track max ID in this chunk to update offset later
-            let chunkMaxId = -1;
-
-            // Hook up realtime segment callback
-            chunkConfig.onSegmentGenerated = (segment: AudioSegment) => {
-                chunkMaxId = Math.max(chunkMaxId, segment.id);
-                // Adjust ID based on global offset
-                const adjustedSegment = { ...segment, id: segment.id + globalSegmentOffset };
-
-                setResult(prev => {
-                    if (!prev) return null;
-                    // Append new segment
-                    return {
-                        ...prev,
-                        segments: [...prev.segments, adjustedSegment]
-                    };
-                });
-            };
-
-            // Call API
-            if (config.provider === 'edge') {
-                await generateSpeechEdge(chunkConfig);
-            } else {
-                await generateSpeechGemini(chunkConfig);
-            }
-
-            // Update Offset for next loop
-            // If onSegmentGenerated was called, we add (maxId + 1). If not (rare), we assume 0 or handle logic.
-            if (chunkMaxId >= 0) {
-                globalSegmentOffset += (chunkMaxId + 1);
-            }
-
-            // Save to Library (We save individual parts as separate entries for safety, OR valid "checkpoints")
-            const displayId = isMultiPart ? `${Date.now()}_${i}` : Date.now().toString();
-            const displayText = isMultiPart 
-                ? `${config.text.slice(0, 30)}... (Phần ${i+1}/${sessionChunks.length})`
-                : config.text;
-
-            const newScript: SavedScript = {
-                id: displayId,
-                text: displayText,
-                voice: config.voice,
-                provider: config.provider,
-                language: config.language,
-                tone: config.tone || "Tiêu chuẩn",
-                style: config.style || "Tiêu chuẩn",
-                instructions: config.instructions || "",
-                timestamp: Date.now(),
-                geminiModel: config.geminiModel
-            };
-            
-            setLibrary(prev => [newScript, ...prev]);
-
-            // If multipart, give a small delay between requests to be nice to API
-            if (isMultiPart && i < sessionChunks.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, 500));
-            }
+        // Call API
+        if (config.provider === 'edge') {
+            await generateSpeechEdge(config);
+        } else {
+            await generateSpeechGemini(config);
         }
 
+        // Save to Library
+        const newScript: SavedScript = {
+            id: Date.now().toString(),
+            text: config.text,
+            voice: config.voice,
+            provider: config.provider,
+            language: config.language,
+            tone: config.tone || "Tiêu chuẩn",
+            style: config.style || "Tiêu chuẩn",
+            instructions: config.instructions || "",
+            timestamp: Date.now(),
+            geminiModel: config.geminiModel
+        };
+        
+        setLibrary(prev => [newScript, ...prev]);
         setStatus(GenerationStatus.SUCCESS);
         setStatusMessage("");
     } catch (err: any) {
@@ -272,6 +233,46 @@ function App() {
                   className="px-6 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-brand-500/20 transition-all transform hover:-translate-y-0.5"
                 >
                   Lưu cấu hình
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- CONFIRMATION MODAL --- */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-slide-up">
+            <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-amber-400" /> Thông báo
+              </h2>
+              <button onClick={() => setShowConfirmModal(false)}><X className="w-5 h-5 text-slate-400 hover:text-white" /></button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <p className="text-slate-300 text-sm leading-relaxed">
+                Bạn đang nhập số lượng từ quá dài, quá trình tạo voice có thể bị lỗi, bấm OK để tiếp tục!
+              </p>
+              
+              <div className="flex justify-end gap-3 pt-2">
+                <button 
+                  onClick={() => setShowConfirmModal(false)}
+                  className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-white transition-colors"
+                >
+                  Hủy
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowConfirmModal(false);
+                    if (pendingConfig) {
+                      startGeneration(pendingConfig);
+                    }
+                  }}
+                  className="px-6 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 text-sm font-bold rounded-xl shadow-lg shadow-amber-500/20 transition-all transform hover:-translate-y-0.5"
+                >
+                  OK
                 </button>
               </div>
             </div>
